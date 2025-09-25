@@ -1,33 +1,88 @@
+/**
+ * Student Task Manager – server-enabled front end with auth
+ * - Keeps the exact UI intact.
+ * - Chooses between LocalStorage and PHP backend.
+ * - Requires session when server is present (auth.html).
+ * - Uses RELATIVE paths (server/...) so it works in subfolders.
+ * - Robust "Add Task" handling anywhere in the page.
+ */
 
-const Store = (() => {
+// ---- tiny helper ----
+async function checkSession(){
+  try{
+    const r = await fetch('server/auth.php?action=session',{credentials:'same-origin'});
+    if(!r.ok) return {authenticated:false};
+    return r.json();
+  }catch{
+    return {authenticated:false};
+  }
+}
+async function logout(){
+  try{ await fetch('server/auth.php?action=logout',{credentials:'same-origin'}); }catch{}
+  window.location.href='auth.html';
+}
+async function pingServer() {
+  try {
+    const res = await fetch('server/tasks.php?ping=1', { credentials:'same-origin' });
+    return res.ok;
+  } catch { return false; }
+}
+function toISO(d){ return new Date(d).toISOString(); }
+
+// --- Local Storage implementation ---
+const LocalStore = (() => {
   const KEY = 'stm.tasks.v1';
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };
   const write = (tasks) => localStorage.setItem(KEY, JSON.stringify(tasks));
   return {
-    all() { return read().sort((a,b) => new Date(a.dueAt) - new Date(b.dueAt)); },
-    get(id) { return read().find(t => t.id === id) || null; },
-    create(partial) {
+    name: 'local',
+    async all() { return read().sort((a,b) => new Date(a.dueAt) - new Date(b.dueAt)); },
+    async get(id) { return read().find(t => t.id === id) || null; },
+    async create(partial) {
       const now = new Date().toISOString();
       const task = { id: uid(), title: '', description: '', category: '', priority: 'medium', dueAt: now, done: false, notify: false, createdAt: now, updatedAt: now, ...partial };
       const tasks = read(); tasks.push(task); write(tasks); return task;
     },
-    update(id, updates) {
+    async update(id, updates) {
       const tasks = read();
       const idx = tasks.findIndex(t => t.id === id);
       if (idx === -1) return null;
       tasks[idx] = { ...tasks[idx], ...updates, updatedAt: new Date().toISOString() };
       write(tasks); return tasks[idx];
     },
-    remove(id) { write(read().filter(t => t.id !== id)); },
-    import(json) { write(json); },
-    export() { return read(); },
+    async remove(id) { write(read().filter(t => t.id !== id)); },
+    async import(json) { write(json); },
+    async export() { return read(); },
   };
 })();
 
+// --- Server (PHP) store ---
+const ServerStore = (() => {
+  const base = 'server/tasks.php';
+  const headers = { 'Content-Type': 'application/json' };
+  async function j(res){ if(!res.ok){ const t=await res.text(); throw new Error(t||('HTTP '+res.status)); } return res.json(); }
+  return {
+    name: 'server',
+    async all(){ return j(await fetch(base, { credentials:'same-origin' })); },
+    async get(id){ return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { credentials:'same-origin' })); },
+    async create(partial){
+      return j(await fetch(base, { method:'POST', headers, body: JSON.stringify(partial), credentials:'same-origin' }));
+    },
+    async update(id, updates){
+      return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { method:'PATCH', headers, body: JSON.stringify(updates), credentials:'same-origin' }));
+    },
+    async remove(id){
+      await j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { method:'DELETE', credentials:'same-origin' }));
+    },
+    async import(json){
+      await j(await fetch(`${base}?import=1`, { method:'POST', headers, body: JSON.stringify(json), credentials:'same-origin' }));
+    },
+    async export(){ return j(await fetch(`${base}?export=1`, { credentials:'same-origin' })); },
+  };
+})();
 
- // Reminder Engine (in-app + Notification API)
-
+// Reminders
 const Reminders = (() => {
   let timer = null;
   const REQUESTED = 'stm.notify.requested';
@@ -53,10 +108,10 @@ const Reminders = (() => {
       }
     } catch {}
   }
-  function checkDue() {
+  async function checkDue(Store) {
     const now = Date.now();
     const soonWindow = 24*60*60*1000;
-    const tasks = Store.all().filter(t => !t.done);
+    const tasks = (await Store.all()).filter(t => !t.done);
     let dueSoon = 0;
     for (const t of tasks) {
       const due = new Date(t.dueAt).getTime();
@@ -64,14 +119,11 @@ const Reminders = (() => {
       if (t.notify && due <= now && due > now - 60*1000) notify(t);
     }
     UI.setDueSoonBadge(dueSoon);
-    UI.renderStats();
+    UI.renderStats(Store);
   }
-  return { start(){ checkDue(); if (timer) clearInterval(timer); timer=setInterval(checkDue,60*1000); }, requestPermissionIfNeeded: ensurePermission };
+  return { start(Store){ checkDue(Store); if (timer) clearInterval(timer); timer=setInterval(()=>checkDue(Store),60*1000); }, requestPermissionIfNeeded: ensurePermission };
 })();
 
-
- //UI Rendering & Event Handlers
- 
 const UI = (() => {
   const els = {
     list: document.getElementById('taskList'),
@@ -96,10 +148,42 @@ const UI = (() => {
   let currentFilter = 'all';
   let editingId = null;
   let weeklyChart = null;
+  let Store = LocalStore;
 
   const fmtDate = (dt) => new Date(dt).toLocaleString();
   const startOfWeek = (date) => { const d=new Date(date); const day=d.getDay(); const diff=(day===0?-6:1)-day; d.setDate(d.getDate()+diff); d.setHours(0,0,0,0); return d; };
   const endOfWeek = (date) => { const d=startOfWeek(date); d.setDate(d.getDate()+6); d.setHours(23,59,59,999); return d; };
+
+  // ---------- New Task: universal capture listener ----------
+  const NEW_TASK_SELECTORS = [
+    '#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '#add',
+    '.btn-add', '.btn-add-task', '.add-task', '.addTask',
+    '[data-action="newTask"]', '[data-new-task]', '[data-action="add-task"]',
+    '[aria-label="Add Task"]'
+  ];
+  function looksLikeNewTask(el){
+    if(!el) return false;
+    const t=(el.getAttribute('aria-label')||el.textContent||'').toLowerCase().replace(/\s+/g,' ').trim();
+    return /(^|\b)(add|new)\s+task(s)?\b/.test(t);
+  }
+  function isClickable(el){
+    if(!el) return false;
+    const role=el.getAttribute && el.getAttribute('role');
+    return ['BUTTON','A'].includes(el.tagName) || role==='button';
+  }
+  document.addEventListener('click', (e)=>{
+    let match = e.target.closest(NEW_TASK_SELECTORS.join(','));
+    if(!match){
+      // Fallback: check ancestors for a button-like element that says "Add Task"/"New Task"
+      for (let n=e.target; n && n !== document; n = n.parentElement) {
+        if (isClickable(n) && looksLikeNewTask(n)) { match = n; break; }
+      }
+    }
+    if (match){
+      e.preventDefault();
+      openForm();
+    }
+  }, true); // capture phase to beat other handlers/links
 
   function priorityChipEl(priority){
     const span=document.createElement('span'); span.classList.add('chip');
@@ -109,14 +193,14 @@ const UI = (() => {
     return span;
   }
 
-  function renderList() {
-    const query = els.search.value.trim().toLowerCase();
-    const cat = els.categoryFilter.value;
+  async function renderList() {
+    const query = els.search?.value?.trim().toLowerCase() || '';
+    const cat = els.categoryFilter?.value || '';
     const now = Date.now();
     const weekEnd = endOfWeek(new Date());
     const weekStart = startOfWeek(new Date());
 
-    let tasks = Store.all();
+    let tasks = await Store.all();
     if (query) tasks = tasks.filter(t => t.title.toLowerCase().includes(query) || (t.description||'').toLowerCase().includes(query));
     if (cat) tasks = tasks.filter(t => t.category === cat);
 
@@ -136,13 +220,9 @@ const UI = (() => {
     });
 
     els.list.innerHTML = '';
-    if (tasks.length === 0) {
-      els.empty.classList.remove('hidden');
-      els.listSummary.textContent = '0 items';
-      return;
-    }
-    els.empty.classList.add('hidden');
-    els.listSummary.textContent = `${tasks.length} ${tasks.length===1?'item':'items'}`;
+    if (!tasks.length) { els.empty?.classList?.remove('hidden'); els.listSummary && (els.listSummary.textContent = '0 items'); return; }
+    els.empty?.classList?.add('hidden');
+    if (els.listSummary) els.listSummary.textContent = `${tasks.length} ${tasks.length===1?'item':'items'}`;
 
     for (const t of tasks) {
       const frag = els.tpl.content.cloneNode(true);
@@ -157,7 +237,6 @@ const UI = (() => {
       const btnEdit = frag.querySelector('.edit-btn');
       const btnDel = frag.querySelector('.delete-btn');
 
-      // Set values
       chk.checked = t.done;
       title.textContent = t.title;
       if (t.done) title.classList.add('line-through','text-slate-400');
@@ -172,21 +251,23 @@ const UI = (() => {
       if (t.category) { catChip.textContent = t.category; catChip.classList.remove('hidden'); }
       if (t.notify) reminder.classList.remove('hidden');
 
-      chk.addEventListener('change', () => { Store.update(t.id, { done: chk.checked }); renderAll(); });
+      chk.addEventListener('change', async () => { await Store.update(t.id, { done: chk.checked }); renderAll(Store); });
       btnEdit.addEventListener('click', () => openForm(t.id));
-      btnDel.addEventListener('click', () => { if (confirm('Delete this task?')) { Store.remove(t.id); renderAll(); } });
+      btnDel.addEventListener('click', async () => { if (confirm('Delete this task?')) { await Store.remove(t.id); renderAll(Store); } });
 
       els.list.appendChild(frag);
     }
   }
 
-  function populateFilters() {
-    const cats = [...new Set(Store.all().map(t => t.category).filter(Boolean))].sort();
+  async function populateFilters() {
+    if (!els.categoryFilter || !els.catDatalist) return;
+    const cats = [...new Set((await Store.all()).map(t => t.category).filter(Boolean))].sort();
     els.categoryFilter.innerHTML = '<option value=\"\">All categories</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
     els.catDatalist.innerHTML = cats.map(c => `<option value="${c}"></option>`).join('');
   }
 
   function setDueSoonBadge(count) {
+    if (!els.dueSoonBadge) return;
     els.dueSoonBadge.textContent = `${count} due soon`;
     if (count > 0) els.dueSoonBadge.classList.remove('hidden'); else els.dueSoonBadge.classList.add('hidden');
   }
@@ -198,29 +279,34 @@ const UI = (() => {
     return `${y}-${m}-${d}T${hh}:${mm}`;
   }
 
-  function openForm(id=null) {
+  async function openForm(id=null) {
+    if (!els.modal || !els.form) return;
     editingId = id;
     els.form.reset();
-    els.btnDelete.classList.add('hidden');
+    els.btnDelete?.classList?.add('hidden');
     const when = new Date(); when.setHours(when.getHours()+2);
     els.form.elements['dueAt'].value = toLocalDateTime(when);
-    els.formTitle.textContent = id ? 'Edit Task' : 'New Task';
+    els.formTitle && (els.formTitle.textContent = id ? 'Edit Task' : 'New Task');
     if (id) {
-      const t = Store.get(id); if (!t) return;
+      const t = await Store.get(id); if (!t) return;
       els.form.elements['title'].value = t.title;
       els.form.elements['description'].value = t.description || '';
       els.form.elements['category'].value = t.category || '';
       els.form.elements['priority'].value = t.priority;
       els.form.elements['dueAt'].value = toLocalDateTime(new Date(t.dueAt));
       els.form.elements['notify'].checked = !!t.notify;
-      els.btnDelete.classList.remove('hidden');
+      els.btnDelete?.classList?.remove('hidden');
     }
     els.modal.showModal();
     els.form.elements['title'].focus();
   }
-  function closeForm(){ els.modal.close(); }
+  function closeForm(){ els.modal?.close(); }
 
-  function handleSubmit(e){
+  // expose for delegated clicks
+  if (!window.UI) window.UI = {};
+  window.UI.openForm = openForm;
+
+  async function handleSubmit(e){
     e.preventDefault();
     const fd = new FormData(els.form);
     const data = Object.fromEntries(fd.entries());
@@ -233,13 +319,14 @@ const UI = (() => {
       notify: !!data.notify
     };
     if (!payload.title) return alert('Title is required');
-    if (editingId) Store.update(editingId, payload); else Store.create(payload);
-    closeForm(); renderAll();
+    if (editingId) await Store.update(editingId, payload); else await Store.create(payload);
+    closeForm(); renderAll(Store);
   }
-  function handleDelete(){ if (editingId && confirm('Delete this task?')) { Store.remove(editingId); closeForm(); renderAll(); } }
+  async function handleDelete(){ if (editingId && confirm('Delete this task?')) { await Store.remove(editingId); closeForm(); renderAll(Store); } }
 
-  function renderStats(){
-    const tasks = Store.all();
+  async function renderStats(Store){
+    if (!els.statTotal) return;
+    const tasks = await Store.all();
     const now = Date.now(); const soonWindow = 24*60*60*1000;
     const overdue = tasks.filter(t => !t.done && new Date(t.dueAt).getTime() < now).length;
     const soon = tasks.filter(t => !t.done).filter(t => { const due = new Date(t.dueAt).getTime(); return due >= now && (due - now) <= soonWindow; }).length;
@@ -247,43 +334,114 @@ const UI = (() => {
     els.statTotal.textContent = tasks.length; els.statDone.textContent = done; els.statSoon.textContent = soon; els.statOverdue.textContent = overdue;
   }
 
-  function renderWeeklyChart(){
+  async function renderWeeklyChart(Store){
     const sw = startOfWeek(new Date());
     const days = [...Array(7)].map((_,i)=>{const d=new Date(sw); d.setDate(d.getDate()+i); return d;});
     const dayKey = (d) => d.toISOString().slice(0,10);
     const doneByDay = Object.fromEntries(days.map(d=>[dayKey(d),0])); const totalByDay = Object.fromEntries(days.map(d=>[dayKey(d),0]));
-    for (const t of Store.all()) { const k = dayKey(new Date(t.dueAt)); if (k in totalByDay) totalByDay[k]++; if (t.done && k in doneByDay) doneByDay[k]++; }
+    for (const t of await Store.all()) { const k = dayKey(new Date(t.dueAt)); if (k in totalByDay) totalByDay[k]++; if (t.done && k in doneByDay) doneByDay[k]++; }
     const labels = days.map(d=>d.toLocaleDateString(undefined,{weekday:'short'}));
     const doneData = days.map(d=>doneByDay[dayKey(d)]); const totalData = days.map(d=>totalByDay[dayKey(d)]);
-    const ctx = document.getElementById('weeklyChart'); if (weeklyChart) weeklyChart.destroy();
-    weeklyChart = new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ {label:'Completed', data:doneData}, {label:'Total Due', data:totalData} ] }, options:{ responsive:true, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true,precision:0}} } });
-    const end = endOfWeek(new Date()); els.weekRange.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+    const ctx = document.getElementById('weeklyChart'); if (!ctx) return;
+    if (window.weeklyChart) window.weeklyChart.destroy?.();
+    window.weeklyChart = new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ {label:'Completed', data:doneData}, {label:'Total Due', data:totalData} ] }, options:{ responsive:true, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true,precision:0}} } });
+    const end = endOfWeek(new Date()); const wr=document.getElementById('weekRange'); if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
   }
 
-  function bind(){
-    document.getElementById('btnNewTask').addEventListener('click', () => openForm());
-    els.form.addEventListener('submit', handleSubmit);
-    document.getElementById('btnDelete').addEventListener('click', handleDelete);
+  function onAll(selectors, type, handler) {
+    selectors.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => el.addEventListener(type, handler));
+    });
+  }
+
+  function bind(StoreRef){
+    // OPEN NEW TASK: support navbar + task section variants explicitly too
+    onAll(
+      ['#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '.btn-add', '.btn-add-task', '.add-task', '[data-action="newTask"]'],
+      'click',
+      (e) => { e.preventDefault(); openForm(); }
+    );
+
+    // Form & other controls
+    if (els.form) els.form.addEventListener('submit', handleSubmit);
+    const del = document.getElementById('btnDelete'); if (del) del.addEventListener('click', handleDelete);
     document.querySelectorAll('.filter-btn').forEach(btn => { btn.addEventListener('click', () => { currentFilter = btn.dataset.filter; renderList(); }); });
-    els.search.addEventListener('input', renderList); els.categoryFilter.addEventListener('change', renderList);
-    document.getElementById('btnExport').addEventListener('click', () => { const blob=new Blob([JSON.stringify(Store.export(),null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='tasks.json'; a.click(); URL.revokeObjectURL(url); });
-    document.getElementById('importFile').addEventListener('change', async (e) => { const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); try{ const json=JSON.parse(text); if(!Array.isArray(json)) throw new Error('Invalid file'); Store.import(json); renderAll(); } catch { alert('Invalid JSON file'); } e.target.value=''; });
-    document.getElementById('notifyCheck').addEventListener('change', (e)=>{ if(e.target.checked) Reminders.requestPermissionIfNeeded(); });
+    els.search?.addEventListener('input', renderList); els.categoryFilter?.addEventListener('change', renderList);
+
+    const btnExport = document.getElementById('btnExport');
+    if (btnExport) btnExport.addEventListener('click', async () => {
+      const blob=new Blob([JSON.stringify(await Store.export(),null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='tasks.json'; a.click(); URL.revokeObjectURL(url);
+    });
+    const importFile = document.getElementById('importFile');
+    if (importFile) importFile.addEventListener('change', async (e) => { const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); try{ const json=JSON.parse(text); if(!Array.isArray(json)) throw new Error('Invalid file'); await Store.import(json); renderAll(Store); } catch { alert('Invalid JSON file'); } e.target.value=''; });
+
+    const notifyCheck = document.getElementById('notifyCheck'); if (notifyCheck) notifyCheck.addEventListener('change', (e)=>{ if(e.target.checked) Reminders.requestPermissionIfNeeded(); });
+
+    // --- Save & Close wiring for modal (works even if buttons aren’t type="submit") ---
+    const btnSave =
+      document.getElementById('btnSaveTask') ||
+      document.querySelector('[data-action="saveTask"]') ||
+      document.querySelector('.btn-save');
+
+    if (btnSave) {
+      btnSave.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (els.form?.requestSubmit) els.form.requestSubmit(); // modern
+        else els.form?.dispatchEvent(new Event('submit', { cancelable: true })); // fallback
+      });
+    }
+
+    const btnClose =
+      document.getElementById('btnCloseModal') ||
+      document.querySelector('[data-action="closeModal"]') ||
+      document.querySelector('.btn-close');
+
+    if (btnClose) {
+      btnClose.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof els.modal?.close === 'function') els.modal.close();
+      });
+    }
+
+    // Optional: click outside dialog to close (<dialog> native)
+    if (els.modal && typeof els.modal.addEventListener === 'function') {
+      els.modal.addEventListener('click', (e) => {
+        const rect = els.modal.getBoundingClientRect();
+        const outside =
+          e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom;
+        if (outside) els.modal.close();
+      });
+    }
   }
 
-  function renderAll(){ populateFilters(); renderList(); renderStats(); renderWeeklyChart(); }
+  async function renderAll(StoreRef){ await populateFilters(); await renderList(); await renderStats(StoreRef); await renderWeeklyChart(StoreRef); }
 
-  return { renderAll, bind, openForm, closeForm, setDueSoonBadge };
+  async function init(){
+    const serverUp = await pingServer();
+    Store = serverUp ? ServerStore : LocalStore;
+
+    if (Store.name==='server') {
+      const s = await checkSession();
+      if (!s.authenticated) { window.location.href='auth.html'; return; }
+      const el=document.getElementById('userName'); if (el && s.user) el.textContent=s.user.username;
+      const lo=document.getElementById('btnLogout'); if (lo) lo.addEventListener('click', logout);
+    }
+
+    bind(Store);
+    await renderAll(Store);
+    Reminders.start(Store);
+
+    if (Store.name === 'local' && (await Store.all()).length === 0) {
+      const now = new Date();
+      await Store.create({ title: 'Finish math assignment', category: 'Math', priority: 'high', dueAt: new Date(now.getTime()+6*60*60*1000).toISOString(), notify: true });
+      await Store.create({ title: 'Read Chapter 4', category: 'History', priority: 'medium', dueAt: new Date(now.getTime()+30*60*60*1000).toISOString(), notify: false });
+      await Store.create({ title: 'Group project sync', category: 'CS', priority: 'low', dueAt: new Date(now.getTime()-12*60*60*1000).toISOString(), notify: false, done: true });
+      await renderAll(Store);
+    }
+  }
+
+  return { init, setDueSoonBadge };
 })();
 
-// Initialize app
-document.addEventListener('DOMContentLoaded', () => {
-  UI.bind(); UI.renderAll(); Reminders.start();
-  if (Store.all().length === 0) {
-    const now = new Date();
-    Store.create({ title: 'Finish math assignment', category: 'Math', priority: 'high', dueAt: new Date(now.getTime()+6*60*60*1000).toISOString(), notify: true });
-    Store.create({ title: 'Read Chapter 4', category: 'History', priority: 'medium', dueAt: new Date(now.getTime()+30*60*60*1000).toISOString(), notify: false });
-    Store.create({ title: 'Group project sync', category: 'CS', priority: 'low', dueAt: new Date(now.getTime()-12*60*60*1000).toISOString(), notify: false, done: true });
-    UI.renderAll();
-  }
-});
+document.addEventListener('DOMContentLoaded', () => UI.init());

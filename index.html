@@ -30,6 +30,14 @@
         <h1 class="text-xl md:text-2xl font-bold">Student Task Manager</h1>
         <span id="dueSoonBadge" class="hidden ml-2 chip chip-alert">Due soon</span>
       </div>
+      <div class="flex items-center gap-3 ml-auto">
+  <span id="userName" class="font-semibold text-slate-700"></span>
+  <button id="btnLogout" 
+          class="px-3 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">
+    Logout
+  </button>
+</div>
+
       <div class="flex items-center gap-2">
         <button id="btnExport" class="btn btn-secondary" title="Export tasks as JSON">
           <span class="i-lucide-download"></span> Export

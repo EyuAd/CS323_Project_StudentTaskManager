@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Student Task Manager – Sign in</title>
+  <link rel="stylesheet" href="assets/styles.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script defer src="assets/auth.js"></script>
+  <style>
+    .auth-card{max-width:420px;margin:6rem auto;padding:2rem;background:white;border-radius:1rem;box-shadow:0 10px 30px rgba(2,6,23,.08)}
+    .brand{font-weight:700;font-size:1.25rem}
+    .muted{color:#64748b}
+    .input{width:100%;padding:.75rem .9rem;border:1px solid #e2e8f0;border-radius:.75rem;outline:none}
+    .input:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+    .btn{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:.75rem 1rem;border-radius:.75rem;border:1px solid transparent;background:#111827;color:#fff;font-weight:600}
+    .btn:hover{opacity:.95}
+    .tab{display:flex;gap:.5rem;background:#f1f5f9;padding:.35rem;border-radius:.75rem;margin:1rem 0}
+    .tab button{flex:1;padding:.5rem;border-radius:.5rem;font-weight:600;color:#334155;background:transparent;border:none;cursor:pointer}
+    .tab button.active{background:white;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+    .error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:.5rem .75rem;border-radius:.5rem;margin-bottom:.75rem;display:none}
+    .success{background:#dcfce7;color:#065f46;border:1px solid #bbf7d0;padding:.5rem .75rem;border-radius:.5rem;margin-bottom:.75rem;display:none}
+    .footer{margin-top:1rem;font-size:.85rem}
+    body{background:#f8fafc;font-family:Inter,system-ui,Arial,sans-serif}
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <div class="brand">🎒 Student Task Manager</div>
+    <div class="muted" style="margin-top:.25rem;">Welcome back — sign in to manage your tasks</div>
+
+    <div class="tab" role="tablist" aria-label="Auth switch">
+      <button id="tabLogin" class="active" type="button">Login</button>
+      <button id="tabRegister" type="button">Register</button>
+    </div>
+
+    <div id="msgError" class="error"></div>
+    <div id="msgSuccess" class="success"></div>
+
+    <form id="formLogin" autocomplete="on">
+      <div style="display:grid;gap:.75rem">
+        <div>
+          <label class="muted">Email</label>
+          <input class="input" type="email" name="email" required placeholder="you@example.com"/>
+        </div>
+        <div>
+          <label class="muted">Password</label>
+          <input class="input" type="password" name="password" required placeholder="••••••••"/>
+        </div>
+        <button class="btn" type="submit">Sign in</button>
+      </div>
+    </form>
+
+    <form id="formRegister" style="display:none" autocomplete="on">
+      <div style="display:grid;gap:.75rem">
+        <div>
+          <label class="muted">Username</label>
+          <input class="input" type="text" name="username" required placeholder="Your name"/>
+        </div>
+        <div>
+          <label class="muted">Email</label>
+          <input class="input" type="email" name="email" required placeholder="you@example.com"/>
+        </div>
+        <div>
+          <label class="muted">Password</label>
+          <input class="input" type="password" name="password" minlength="6" required placeholder="At least 6 characters"/>
+        </div>
+        <button class="btn" type="submit">Create account</button>
+      </div>
+    </form>
+
+    <div class="footer muted">By continuing you agree to our very cool terms.</div>
+  </div>
+</body>
+</html>
