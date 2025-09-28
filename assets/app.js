@@ -1,13 +1,4 @@
-/**
- * Student Task Manager – server-enabled front end with auth
- * - Keeps the exact UI intact.
- * - Chooses between LocalStorage and PHP backend.
- * - Requires session when server is present (auth.html).
- * - Uses RELATIVE paths (server/...) so it works in subfolders.
- * - Robust "Add Task" handling anywhere in the page.
- */
 
-// ---- tiny helper ----
 async function checkSession(){
   try{
     const r = await fetch('server/auth.php?action=session',{credentials:'same-origin'});
@@ -29,7 +20,7 @@ async function pingServer() {
 }
 function toISO(d){ return new Date(d).toISOString(); }
 
-// --- Local Storage implementation ---
+//Local Storage 
 const LocalStore = (() => {
   const KEY = 'stm.tasks.v1';
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -57,7 +48,7 @@ const LocalStore = (() => {
   };
 })();
 
-// --- Server (PHP) store ---
+//Server (PHP) store
 const ServerStore = (() => {
   const base = 'server/tasks.php';
   const headers = { 'Content-Type': 'application/json' };
@@ -154,7 +145,7 @@ const UI = (() => {
   const startOfWeek = (date) => { const d=new Date(date); const day=d.getDay(); const diff=(day===0?-6:1)-day; d.setDate(d.getDate()+diff); d.setHours(0,0,0,0); return d; };
   const endOfWeek = (date) => { const d=startOfWeek(date); d.setDate(d.getDate()+6); d.setHours(23,59,59,999); return d; };
 
-  // ---------- New Task: universal capture listener ----------
+  //New Task
   const NEW_TASK_SELECTORS = [
     '#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '#add',
     '.btn-add', '.btn-add-task', '.add-task', '.addTask',
@@ -174,7 +165,7 @@ const UI = (() => {
   document.addEventListener('click', (e)=>{
     let match = e.target.closest(NEW_TASK_SELECTORS.join(','));
     if(!match){
-      // Fallback: check ancestors for a button-like element that says "Add Task"/"New Task"
+      
       for (let n=e.target; n && n !== document; n = n.parentElement) {
         if (isClickable(n) && looksLikeNewTask(n)) { match = n; break; }
       }
@@ -183,7 +174,7 @@ const UI = (() => {
       e.preventDefault();
       openForm();
     }
-  }, true); // capture phase to beat other handlers/links
+  }, true); 
 
   function priorityChipEl(priority){
     const span=document.createElement('span'); span.classList.add('chip');
@@ -301,10 +292,13 @@ const UI = (() => {
     els.form.elements['title'].focus();
   }
   function closeForm(){ els.modal?.close(); }
+  
+if (!window.UI) window.UI = {};
+window.UI.openForm = openForm;
+window.UI.closeForm = closeForm;
 
-  // expose for delegated clicks
-  if (!window.UI) window.UI = {};
-  window.UI.openForm = openForm;
+
+
 
   async function handleSubmit(e){
     e.preventDefault();
@@ -334,19 +328,89 @@ const UI = (() => {
     els.statTotal.textContent = tasks.length; els.statDone.textContent = done; els.statSoon.textContent = soon; els.statOverdue.textContent = overdue;
   }
 
-  async function renderWeeklyChart(Store){
-    const sw = startOfWeek(new Date());
-    const days = [...Array(7)].map((_,i)=>{const d=new Date(sw); d.setDate(d.getDate()+i); return d;});
-    const dayKey = (d) => d.toISOString().slice(0,10);
-    const doneByDay = Object.fromEntries(days.map(d=>[dayKey(d),0])); const totalByDay = Object.fromEntries(days.map(d=>[dayKey(d),0]));
-    for (const t of await Store.all()) { const k = dayKey(new Date(t.dueAt)); if (k in totalByDay) totalByDay[k]++; if (t.done && k in doneByDay) doneByDay[k]++; }
-    const labels = days.map(d=>d.toLocaleDateString(undefined,{weekday:'short'}));
-    const doneData = days.map(d=>doneByDay[dayKey(d)]); const totalData = days.map(d=>totalByDay[dayKey(d)]);
-    const ctx = document.getElementById('weeklyChart'); if (!ctx) return;
-    if (window.weeklyChart) window.weeklyChart.destroy?.();
-    window.weeklyChart = new Chart(ctx,{ type:'bar', data:{ labels, datasets:[ {label:'Completed', data:doneData}, {label:'Total Due', data:totalData} ] }, options:{ responsive:true, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true,precision:0}} } });
-    const end = endOfWeek(new Date()); const wr=document.getElementById('weekRange'); if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+ 
+async function renderWeeklyChart(Store){
+  //Chart.js + canvas
+  if (typeof Chart === 'undefined') return;
+  const canvas = document.getElementById('weeklyChart');
+  if (!canvas) return;
+  if (!canvas.style.height) canvas.style.height = '220px';
+
+  // Helpers for LOCAL date 
+  const keyLocal = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const startOfWeekLocal = (date) => {
+    const d = new Date(date);
+    const day = d.getDay();                 // 0=Sun..6=Sat
+    const diff = (day === 0 ? -6 : 1) - day; // Monday as first day
+    d.setDate(d.getDate() + diff);
+    d.setHours(0,0,0,0);
+    return d;
+  };
+  const endOfWeekLocal = (date) => {
+    const d = startOfWeekLocal(date);
+    d.setDate(d.getDate() + 6);
+    d.setHours(23,59,59,999);
+    return d;
+  };
+
+  // Build this week's 7 day buckets (LOCAL)
+  const sw = startOfWeekLocal(new Date());
+  const days = [...Array(7)].map((_, i) => {
+    const d = new Date(sw);
+    d.setDate(d.getDate() + i);
+    d.setHours(0,0,0,0);
+    return d;
+  });
+
+  const doneByDay  = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
+  const totalByDay = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
+
+  // Count tasks by *due date* (LOCAL day)
+  const tasks = await Store.all();
+  for (const t of tasks) {
+    const due = new Date(t.dueAt);
+    const localDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()); // strip time
+    const k = keyLocal(localDay);
+    if (k in totalByDay) {
+      totalByDay[k]++;
+      if (t.done) doneByDay[k]++;
+    }
   }
+
+  const labels   = days.map(d => d.toLocaleDateString(undefined, { weekday: 'short' }));
+  const doneData = days.map(d => doneByDay[keyLocal(d)]);
+  const totData  = days.map(d => totalByDay[keyLocal(d)]);
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Destroy previous chart instance (hot reload / re-render safe)
+  if (window.weeklyChart?.destroy) window.weeklyChart.destroy();
+
+  window.weeklyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Completed', data: doneData },
+        { label: 'Total Due', data: totData }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+
+  const end = endOfWeekLocal(new Date());
+  const wr = document.getElementById('weekRange');
+  if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+}
+
 
   function onAll(selectors, type, handler) {
     selectors.forEach(sel => {
@@ -355,7 +419,7 @@ const UI = (() => {
   }
 
   function bind(StoreRef){
-    // OPEN NEW TASK: support navbar + task section variants explicitly too
+    // OPEN NEW TASK
     onAll(
       ['#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '.btn-add', '.btn-add-task', '.add-task', '[data-action="newTask"]'],
       'click',
@@ -377,7 +441,7 @@ const UI = (() => {
 
     const notifyCheck = document.getElementById('notifyCheck'); if (notifyCheck) notifyCheck.addEventListener('change', (e)=>{ if(e.target.checked) Reminders.requestPermissionIfNeeded(); });
 
-    // --- Save & Close wiring for modal (works even if buttons aren’t type="submit") ---
+    //save & Close
     const btnSave =
       document.getElementById('btnSaveTask') ||
       document.querySelector('[data-action="saveTask"]') ||
@@ -403,7 +467,7 @@ const UI = (() => {
       });
     }
 
-    // Optional: click outside dialog to close (<dialog> native)
+    
     if (els.modal && typeof els.modal.addEventListener === 'function') {
       els.modal.addEventListener('click', (e) => {
         const rect = els.modal.getBoundingClientRect();

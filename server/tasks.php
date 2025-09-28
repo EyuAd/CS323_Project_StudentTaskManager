@@ -7,13 +7,13 @@ if (isset($_GET['ping'])) { json_out(['ok' => true]); }
 
 $pdo = db();
 
-// require auth (except ping)
+// require auth 
 if (!isset($_SESSION['uid'])) { json_out(['error'=>'Unauthorized'], 401); }
 $userId = intval($_SESSION['uid']);
 
 
 function ensure_schema(PDO $pdo) {
-  // create table if not exists (new installs get user_id from the start)
+  // create table if not exists 
   $pdo->exec("CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     uid VARCHAR(64) NOT NULL UNIQUE,
