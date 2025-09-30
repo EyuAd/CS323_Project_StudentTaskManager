@@ -86,8 +86,19 @@ dialog::backdrop {
   background: rgba(0, 0, 0, 0.4);
 }
 
-/* Chart canvas height (no inline styles) */
+/* Chart canvas */
 .chart-canvas {
   height: 220px;   
   display: block; 
+}
+
+.chart-wrap {
+  height: 220px;          
+  position: relative;      
+}
+
+.chart-wrap canvas {
+  width: 100% !important;  
+  height: 100% !important; 
+  display: block;          
 }

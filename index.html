@@ -62,7 +62,7 @@
           >
             
           </span>
-
+<div class="h-6 w-px bg-slate-200"></div>
           <!-- Export / Import -->
           <div class="flex items-center gap-2">
             <button
@@ -73,7 +73,7 @@
               <span class="i-lucide-download"></span>
               <span class="ml-2">Export</span>
             </button>
-
+<div class="h-6 w-px bg-slate-200"></div>
             <label
               for="importFile"
               class="btn btn-secondary h-9 inline-flex items-center cursor-pointer"
@@ -88,7 +88,7 @@
           <!-- Divider -->
           <div class="h-6 w-px bg-slate-200"></div>
 
-          <!-- New Task + Logout -->
+          
           <div class="flex items-center gap-2">
             <button
               id="btnNewTask"
@@ -96,7 +96,7 @@
             >
               New Task
             </button>
-
+<div class="h-6 w-px bg-slate-200"></div>
             <button
               id="btnLogout"
               class="px-4 h-9 inline-flex items-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium"
@@ -135,12 +135,11 @@
             <h2 class="text-lg font-semibold">Weekly Progress</h2>
             <span id="weekRange" class="text-sm text-slate-500"></span>
           </div>
-          <!-- Chart canvas -->
-          <canvas
-            id="weeklyChart"
-            class="chart-canvas w-full"
-            aria-label="Weekly progress chart"
-          ></canvas>
+<div class="chart-wrap">
+  <canvas id="weeklyChart" aria-label="Weekly progress chart"></canvas>
+</div>
+<span id="weekRange" class="text-sm text-slate-500"></span>
+
         </div>
 
         <div class="card p-5">
