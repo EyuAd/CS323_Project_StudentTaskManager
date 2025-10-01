@@ -32,14 +32,14 @@ High-level flow:
 ## 4. Database Design
 
 ### Entity Relationship Diagram (ERD)
-![alt text](image-1.png)
+![ERD DIAGRAM](image-1.png)
 
 ### Users Table Structure
 
-![alt text](image-2.png)
+![USERS table](image-2.png)
 ### Tasks Table Structure
 
-![alt text](image-3.png)
+![Tasks Table](image-3.png)
 
 ## 5. Interesting Feature
 - Weekly Progress Chart: Built with Chart.js. Shows total tasks vs completed tasks for each day of the current week. Helps students visualize productivity.  
