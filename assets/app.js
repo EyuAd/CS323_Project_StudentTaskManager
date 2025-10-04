@@ -1,4 +1,5 @@
 
+//Session / auth helpers 
 async function checkSession(){
   try{
     const r = await fetch('server/auth.php?action=session',{credentials:'same-origin'});
@@ -18,9 +19,8 @@ async function pingServer() {
     return res.ok;
   } catch { return false; }
 }
-function toISO(d){ return new Date(d).toISOString(); }
 
-//Local Storage 
+// Local/Server stores 
 const LocalStore = (() => {
   const KEY = 'stm.tasks.v1';
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -31,8 +31,20 @@ const LocalStore = (() => {
     async all() { return read().sort((a,b) => new Date(a.dueAt) - new Date(b.dueAt)); },
     async get(id) { return read().find(t => t.id === id) || null; },
     async create(partial) {
-      const now = new Date().toISOString();
-      const task = { id: uid(), title: '', description: '', category: '', priority: 'medium', dueAt: now, done: false, notify: false, createdAt: now, updatedAt: now, ...partial };
+      const nowIso = new Date().toISOString(); // UTC
+      const task = {
+        id: uid(),
+        title: '',
+        description: '',
+        category: '',
+        priority: 'medium',
+        dueAt: nowIso,            // UTC ISO string
+        done: false,
+        notify: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        ...partial
+      };
       const tasks = read(); tasks.push(task); write(tasks); return task;
     },
     async update(id, updates) {
@@ -48,7 +60,6 @@ const LocalStore = (() => {
   };
 })();
 
-//Server (PHP) store
 const ServerStore = (() => {
   const base = 'server/tasks.php';
   const headers = { 'Content-Type': 'application/json' };
@@ -58,9 +69,11 @@ const ServerStore = (() => {
     async all(){ return j(await fetch(base, { credentials:'same-origin' })); },
     async get(id){ return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { credentials:'same-origin' })); },
     async create(partial){
+      // Expect partial.dueAt as UTC ISO (with Z)
       return j(await fetch(base, { method:'POST', headers, body: JSON.stringify(partial), credentials:'same-origin' }));
     },
     async update(id, updates){
+      // Expect updates.dueAt as UTC ISO (with Z)
       return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { method:'PATCH', headers, body: JSON.stringify(updates), credentials:'same-origin' }));
     },
     async remove(id){
@@ -73,16 +86,16 @@ const ServerStore = (() => {
   };
 })();
 
-// Reminders
+// ---------------- Reminders (display local) -------------
 const Reminders = (() => {
   let timer = null;
   const REQUESTED = 'stm.notify.requested';
   async function ensurePermission() {
     try {
       if (!('Notification' in window)) return false;
-      const alreadyAsked = localStorage.getItem(REQUESTED) === '1';
+      const already = localStorage.getItem(REQUESTED) === '1';
       if (Notification.permission === 'granted') return true;
-      if (Notification.permission !== 'denied' && !alreadyAsked) {
+      if (Notification.permission !== 'denied' && !already) {
         const perm = await Notification.requestPermission();
         localStorage.setItem(REQUESTED, '1');
         return perm === 'granted';
@@ -105,16 +118,24 @@ const Reminders = (() => {
     const tasks = (await Store.all()).filter(t => !t.done);
     let dueSoon = 0;
     for (const t of tasks) {
-      const due = new Date(t.dueAt).getTime();
+      const due = new Date(t.dueAt).getTime(); // UTC ISO → epoch
       if (due - now <= soonWindow && due >= now) dueSoon++;
       if (t.notify && due <= now && due > now - 60*1000) notify(t);
     }
     UI.setDueSoonBadge(dueSoon);
     UI.renderStats(Store);
   }
-  return { start(Store){ checkDue(Store); if (timer) clearInterval(timer); timer=setInterval(()=>checkDue(Store),60*1000); }, requestPermissionIfNeeded: ensurePermission };
+  return {
+    start(Store){
+      checkDue(Store);
+      if (timer) clearInterval(timer);
+      timer = setInterval(()=>checkDue(Store), 60*1000);
+    },
+    requestPermissionIfNeeded: ensurePermission
+  };
 })();
 
+// ---------------- UI / App -------------------------------
 const UI = (() => {
   const els = {
     list: document.getElementById('taskList'),
@@ -141,40 +162,30 @@ const UI = (() => {
   let weeklyChart = null;
   let Store = LocalStore;
 
-  const fmtDate = (dt) => new Date(dt).toLocaleString();
-  const startOfWeek = (date) => { const d=new Date(date); const day=d.getDay(); const diff=(day===0?-6:1)-day; d.setDate(d.getDate()+diff); d.setHours(0,0,0,0); return d; };
-  const endOfWeek = (date) => { const d=startOfWeek(date); d.setDate(d.getDate()+6); d.setHours(23,59,59,999); return d; };
+  // Display helper: show LOCAL time to the user
+  const fmtDate = (isoZ) => new Date(isoZ).toLocaleString();
 
-  //New Task
+  const startOfWeek = (date) => { const d=new Date(date); const day=d.getDay(); const diff=(day===0?-6:1)-day; d.setDate(d.getDate()+diff); d.setHours(0,0,0,0); return d; };
+  const endOfWeek   = (date) => { const d=startOfWeek(date); d.setDate(d.getDate()+6); d.setHours(23,59,59,999); return d; };
+
+  // New Task buttons (various selectors)
   const NEW_TASK_SELECTORS = [
     '#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '#add',
     '.btn-add', '.btn-add-task', '.add-task', '.addTask',
     '[data-action="newTask"]', '[data-new-task]', '[data-action="add-task"]',
     '[aria-label="Add Task"]'
   ];
-  function looksLikeNewTask(el){
-    if(!el) return false;
-    const t=(el.getAttribute('aria-label')||el.textContent||'').toLowerCase().replace(/\s+/g,' ').trim();
-    return /(^|\b)(add|new)\s+task(s)?\b/.test(t);
-  }
-  function isClickable(el){
-    if(!el) return false;
-    const role=el.getAttribute && el.getAttribute('role');
-    return ['BUTTON','A'].includes(el.tagName) || role==='button';
-  }
+  function looksLikeNewTask(el){ if(!el) return false; const t=(el.getAttribute('aria-label')||el.textContent||'').toLowerCase().replace(/\s+/g,' ').trim(); return /(^|\b)(add|new)\s+task(s)?\b/.test(t); }
+  function isClickable(el){ if(!el) return false; const role=el.getAttribute && el.getAttribute('role'); return ['BUTTON','A'].includes(el.tagName) || role==='button'; }
   document.addEventListener('click', (e)=>{
     let match = e.target.closest(NEW_TASK_SELECTORS.join(','));
     if(!match){
-      
       for (let n=e.target; n && n !== document; n = n.parentElement) {
         if (isClickable(n) && looksLikeNewTask(n)) { match = n; break; }
       }
     }
-    if (match){
-      e.preventDefault();
-      openForm();
-    }
-  }, true); 
+    if (match){ e.preventDefault(); openForm(); }
+  }, true);
 
   function priorityChipEl(priority){
     const span=document.createElement('span'); span.classList.add('chip');
@@ -196,7 +207,7 @@ const UI = (() => {
     if (cat) tasks = tasks.filter(t => t.category === cat);
 
     tasks = tasks.filter(t => {
-      const due = new Date(t.dueAt).getTime();
+      const due = new Date(t.dueAt).getTime(); 
       switch (currentFilter) {
         case 'today': {
           const d = new Date(); const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -217,7 +228,6 @@ const UI = (() => {
 
     for (const t of tasks) {
       const frag = els.tpl.content.cloneNode(true);
-      const row = frag.querySelector('div');
       const chk = frag.querySelector('.toggle-done');
       const title = frag.querySelector('.title');
       const desc = frag.querySelector('.desc');
@@ -233,7 +243,7 @@ const UI = (() => {
       if (t.done) title.classList.add('line-through','text-slate-400');
       desc.textContent = t.description || '';
       const overdue = !t.done && new Date(t.dueAt).getTime() < Date.now();
-      due.textContent = `Due: ${fmtDate(t.dueAt)}`;
+      due.textContent = `Due: ${fmtDate(t.dueAt)}`;           // display LOCAL
       due.className = `text-xs mt-2 ${overdue ? 'text-red-600' : 'text-slate-500'}`;
 
       const pc = priorityChipEl(t.priority);
@@ -263,6 +273,7 @@ const UI = (() => {
     if (count > 0) els.dueSoonBadge.classList.remove('hidden'); else els.dueSoonBadge.classList.add('hidden');
   }
 
+  // For <input type="datetime-local"> (LOCAL prefill/edit)
   function toLocalDateTime(date) {
     const pad = (n) => String(n).padStart(2, '0');
     const y = date.getFullYear(); const m = pad(date.getMonth()+1); const d = pad(date.getDate());
@@ -275,143 +286,145 @@ const UI = (() => {
     editingId = id;
     els.form.reset();
     els.btnDelete?.classList?.add('hidden');
+
+    
     const when = new Date(); when.setHours(when.getHours()+2);
     els.form.elements['dueAt'].value = toLocalDateTime(when);
+
     els.formTitle && (els.formTitle.textContent = id ? 'Edit Task' : 'New Task');
+
     if (id) {
       const t = await Store.get(id); if (!t) return;
       els.form.elements['title'].value = t.title;
       els.form.elements['description'].value = t.description || '';
       els.form.elements['category'].value = t.category || '';
       els.form.elements['priority'].value = t.priority;
-      els.form.elements['dueAt'].value = toLocalDateTime(new Date(t.dueAt));
+
+  
+      const d = new Date(t.dueAt);
+      els.form.elements['dueAt'].value = toLocalDateTime(d);
+
       els.form.elements['notify'].checked = !!t.notify;
       els.btnDelete?.classList?.remove('hidden');
     }
+
     els.modal.showModal();
     els.form.elements['title'].focus();
   }
   function closeForm(){ els.modal?.close(); }
-  
-if (!window.UI) window.UI = {};
-window.UI.openForm = openForm;
-window.UI.closeForm = closeForm;
+  if (!window.UI) window.UI = {};
+  window.UI.openForm = openForm;
+  window.UI.closeForm = closeForm;
 
-
-
-
+  //  UTC conversion
   async function handleSubmit(e){
     e.preventDefault();
     const fd = new FormData(els.form);
     const data = Object.fromEntries(fd.entries());
+
+    const dueAtUtc = new Date(data.dueAt).toISOString();
+
     const payload = {
       title: data.title.trim(),
       description: (data.description||'').trim(),
       category: (data.category||'').trim(),
       priority: data.priority,
-      dueAt: new Date(data.dueAt).toISOString(),
+      dueAt: dueAtUtc,         
       notify: !!data.notify
     };
-    if (!payload.title) return alert('Title is required');
-    if (editingId) await Store.update(editingId, payload); else await Store.create(payload);
-    closeForm(); renderAll(Store);
-  }
-  async function handleDelete(){ if (editingId && confirm('Delete this task?')) { await Store.remove(editingId); closeForm(); renderAll(Store); } }
 
+    if (!payload.title) return alert('Title is required');
+
+    if (editingId) await Store.update(editingId, payload);
+    else await Store.create(payload);
+
+    closeForm();
+    renderAll(Store);
+  }
+
+  async function handleDelete(){
+    if (editingId && confirm('Delete this task?')) {
+      await Store.remove(editingId);
+      closeForm(); renderAll(Store);
+    }
+  }
+
+  // Stats / Chart 
   async function renderStats(Store){
     if (!els.statTotal) return;
     const tasks = await Store.all();
     const now = Date.now(); const soonWindow = 24*60*60*1000;
     const overdue = tasks.filter(t => !t.done && new Date(t.dueAt).getTime() < now).length;
-    const soon = tasks.filter(t => !t.done).filter(t => { const due = new Date(t.dueAt).getTime(); return due >= now && (due - now) <= soonWindow; }).length;
+    const soon = tasks.filter(t => !t.done).filter(t => {
+      const due = new Date(t.dueAt).getTime();
+      return due >= now && (due - now) <= soonWindow;
+    }).length;
     const done = tasks.filter(t => t.done).length;
-    els.statTotal.textContent = tasks.length; els.statDone.textContent = done; els.statSoon.textContent = soon; els.statOverdue.textContent = overdue;
+    els.statTotal.textContent = tasks.length;
+    els.statDone.textContent = done;
+    els.statSoon.textContent = soon;
+    els.statOverdue.textContent = overdue;
   }
 
- 
-async function renderWeeklyChart(Store){
-  //Chart.js + canvas
-  if (typeof Chart === 'undefined') return;
-  const canvas = document.getElementById('weeklyChart');
-  if (!canvas) return;
-  if (!canvas.style.height) canvas.style.height = '220px';
+  async function renderWeeklyChart(Store){
+    if (typeof Chart === 'undefined') return;
+    const canvas = document.getElementById('weeklyChart');
+    if (!canvas) return;
+    if (!canvas.style.height) canvas.style.height = '220px';
 
-  // Helpers for LOCAL date 
-  const keyLocal = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const keyLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-  const startOfWeekLocal = (date) => {
-    const d = new Date(date);
-    const day = d.getDay();                 // 0=Sun..6=Sat
-    const diff = (day === 0 ? -6 : 1) - day; // Monday as first day
-    d.setDate(d.getDate() + diff);
-    d.setHours(0,0,0,0);
-    return d;
-  };
-  const endOfWeekLocal = (date) => {
-    const d = startOfWeekLocal(date);
-    d.setDate(d.getDate() + 6);
-    d.setHours(23,59,59,999);
-    return d;
-  };
+    const startOfWeekLocal = (date) => { const d = new Date(date); const day = d.getDay(); const diff = (day === 0 ? -6 : 1) - day; d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; };
+    const endOfWeekLocal   = (date) => { const d = startOfWeekLocal(date); d.setDate(d.getDate() + 6); d.setHours(23,59,59,999); return d; };
 
-  // Build this week's 7 day buckets (LOCAL)
-  const sw = startOfWeekLocal(new Date());
-  const days = [...Array(7)].map((_, i) => {
-    const d = new Date(sw);
-    d.setDate(d.getDate() + i);
-    d.setHours(0,0,0,0);
-    return d;
-  });
+    const sw = startOfWeekLocal(new Date());
+    const days = [...Array(7)].map((_, i) => { const d = new Date(sw); d.setDate(d.getDate() + i); d.setHours(0,0,0,0); return d; });
 
-  const doneByDay  = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
-  const totalByDay = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
+    const doneByDay  = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
+    const totalByDay = Object.fromEntries(days.map(d => [keyLocal(d), 0]));
 
-  // Count tasks by *due date* (LOCAL day)
-  const tasks = await Store.all();
-  for (const t of tasks) {
-    const due = new Date(t.dueAt);
-    const localDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()); // strip time
-    const k = keyLocal(localDay);
-    if (k in totalByDay) {
-      totalByDay[k]++;
-      if (t.done) doneByDay[k]++;
+    const tasks = await Store.all();
+    for (const t of tasks) {
+      const due = new Date(t.dueAt); // UTC ISO → Date
+      const localDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+      const k = keyLocal(localDay);
+      if (k in totalByDay) {
+        totalByDay[k]++;
+        if (t.done) doneByDay[k]++;
+      }
     }
+
+    const labels   = days.map(d => d.toLocaleDateString(undefined, { weekday: 'short' }));
+    const doneData = days.map(d => doneByDay[keyLocal(d)]);
+    const totData  = days.map(d => totalByDay[keyLocal(d)]);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (window.weeklyChart?.destroy) window.weeklyChart.destroy();
+
+    window.weeklyChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Completed', data: doneData },
+          { label: 'Total Due', data: totData }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+
+    const end = endOfWeekLocal(new Date());
+    const wr = document.getElementById('weekRange');
+    if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
   }
 
-  const labels   = days.map(d => d.toLocaleDateString(undefined, { weekday: 'short' }));
-  const doneData = days.map(d => doneByDay[keyLocal(d)]);
-  const totData  = days.map(d => totalByDay[keyLocal(d)]);
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  // Destroy previous chart instance (hot reload / re-render safe)
-  if (window.weeklyChart?.destroy) window.weeklyChart.destroy();
-
-  window.weeklyChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Completed', data: doneData },
-        { label: 'Total Due', data: totData }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom' } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-    }
-  });
-
-  const end = endOfWeekLocal(new Date());
-  const wr = document.getElementById('weekRange');
-  if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
-}
-
-
+  //Bindings
   function onAll(selectors, type, handler) {
     selectors.forEach(sel => {
       document.querySelectorAll(sel).forEach(el => el.addEventListener(type, handler));
@@ -419,39 +432,53 @@ async function renderWeeklyChart(Store){
   }
 
   function bind(StoreRef){
-    // OPEN NEW TASK
     onAll(
       ['#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '.btn-add', '.btn-add-task', '.add-task', '[data-action="newTask"]'],
       'click',
       (e) => { e.preventDefault(); openForm(); }
     );
 
-    // Form & other controls
     if (els.form) els.form.addEventListener('submit', handleSubmit);
     const del = document.getElementById('btnDelete'); if (del) del.addEventListener('click', handleDelete);
-    document.querySelectorAll('.filter-btn').forEach(btn => { btn.addEventListener('click', () => { currentFilter = btn.dataset.filter; renderList(); }); });
-    els.search?.addEventListener('input', renderList); els.categoryFilter?.addEventListener('change', renderList);
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => { currentFilter = btn.dataset.filter; renderList(); });
+    });
+    els.search?.addEventListener('input', renderList);
+    els.categoryFilter?.addEventListener('change', renderList);
 
     const btnExport = document.getElementById('btnExport');
     if (btnExport) btnExport.addEventListener('click', async () => {
-      const blob=new Blob([JSON.stringify(await Store.export(),null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='tasks.json'; a.click(); URL.revokeObjectURL(url);
+      const blob=new Blob([JSON.stringify(await Store.export(),null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download='tasks.json'; a.click(); URL.revokeObjectURL(url);
     });
     const importFile = document.getElementById('importFile');
-    if (importFile) importFile.addEventListener('change', async (e) => { const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); try{ const json=JSON.parse(text); if(!Array.isArray(json)) throw new Error('Invalid file'); await Store.import(json); renderAll(Store); } catch { alert('Invalid JSON file'); } e.target.value=''; });
+    if (importFile) importFile.addEventListener('change', async (e) => {
+      const file=e.target.files?.[0]; if(!file) return;
+      const text=await file.text();
+      try{
+        const json=JSON.parse(text);
+        if(!Array.isArray(json)) throw new Error('Invalid file');
+  
+        await Store.import(json);
+        renderAll(Store);
+      } catch { alert('Invalid JSON file'); }
+      e.target.value='';
+    });
 
-    const notifyCheck = document.getElementById('notifyCheck'); if (notifyCheck) notifyCheck.addEventListener('change', (e)=>{ if(e.target.checked) Reminders.requestPermissionIfNeeded(); });
+    const notifyCheck = document.getElementById('notifyCheck');
+    if (notifyCheck) notifyCheck.addEventListener('change', (e)=>{ if(e.target.checked) Reminders.requestPermissionIfNeeded(); });
 
-    //save & Close
     const btnSave =
       document.getElementById('btnSaveTask') ||
       document.querySelector('[data-action="saveTask"]') ||
       document.querySelector('.btn-save');
-
     if (btnSave) {
       btnSave.addEventListener('click', (e) => {
         e.preventDefault();
-        if (els.form?.requestSubmit) els.form.requestSubmit(); // modern
-        else els.form?.dispatchEvent(new Event('submit', { cancelable: true })); // fallback
+        if (els.form?.requestSubmit) els.form.requestSubmit();
+        else els.form?.dispatchEvent(new Event('submit', { cancelable: true }));
       });
     }
 
@@ -459,7 +486,6 @@ async function renderWeeklyChart(Store){
       document.getElementById('btnCloseModal') ||
       document.querySelector('[data-action="closeModal"]') ||
       document.querySelector('.btn-close');
-
     if (btnClose) {
       btnClose.addEventListener('click', (e) => {
         e.preventDefault();
@@ -467,7 +493,6 @@ async function renderWeeklyChart(Store){
       });
     }
 
-    
     if (els.modal && typeof els.modal.addEventListener === 'function') {
       els.modal.addEventListener('click', (e) => {
         const rect = els.modal.getBoundingClientRect();
@@ -479,7 +504,12 @@ async function renderWeeklyChart(Store){
     }
   }
 
-  async function renderAll(StoreRef){ await populateFilters(); await renderList(); await renderStats(StoreRef); await renderWeeklyChart(StoreRef); }
+  async function renderAll(StoreRef){
+    await populateFilters();
+    await renderList();
+    await renderStats(StoreRef);
+    await renderWeeklyChart(StoreRef);
+  }
 
   async function init(){
     const serverUp = await pingServer();
@@ -496,11 +526,12 @@ async function renderWeeklyChart(Store){
     await renderAll(Store);
     Reminders.start(Store);
 
+ 
     if (Store.name === 'local' && (await Store.all()).length === 0) {
-      const now = new Date();
-      await Store.create({ title: 'Finish math assignment', category: 'Math', priority: 'high', dueAt: new Date(now.getTime()+6*60*60*1000).toISOString(), notify: true });
-      await Store.create({ title: 'Read Chapter 4', category: 'History', priority: 'medium', dueAt: new Date(now.getTime()+30*60*60*1000).toISOString(), notify: false });
-      await Store.create({ title: 'Group project sync', category: 'CS', priority: 'low', dueAt: new Date(now.getTime()-12*60*60*1000).toISOString(), notify: false, done: true });
+      const now = Date.now();
+      await Store.create({ title: 'Finish math assignment', category: 'Math',    priority: 'high',   dueAt: new Date(now+6*3600e3).toISOString(),  notify: true });
+      await Store.create({ title: 'Read Chapter 4',         category: 'History', priority: 'medium', dueAt: new Date(now+30*3600e3).toISOString(), notify: false });
+      await Store.create({ title: 'Group project sync',     category: 'CS',      priority: 'low',    dueAt: new Date(now-12*3600e3).toISOString(), notify: false, done: true });
       await renderAll(Store);
     }
   }
