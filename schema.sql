@@ -1,4 +1,4 @@
--- schema.sql
+-- Database schema for the Student Task Manager application.
 CREATE DATABASE IF NOT EXISTS stm_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE stm_db;
 

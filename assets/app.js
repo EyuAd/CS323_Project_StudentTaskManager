@@ -1,5 +1,8 @@
-
-//Session / auth helpers 
+/**
+ * Front-end entry point for Student Task Manager.
+ * Chooses the storage driver, renders tasks, and maintains reminder state.
+ */
+// Session helpers keep the UI aligned with the PHP session state.
 async function checkSession(){
   try{
     const r = await fetch('server/auth.php?action=session',{credentials:'same-origin'});
@@ -20,7 +23,8 @@ async function pingServer() {
   } catch { return false; }
 }
 
-// Local/Server stores 
+// Storage drivers: first localStorage fallback, then the authenticated server API.
+// Local persistence fallback when the server is unavailable.
 const LocalStore = (() => {
   const KEY = 'stm.tasks.v1';
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -31,14 +35,15 @@ const LocalStore = (() => {
     async all() { return read().sort((a,b) => new Date(a.dueAt) - new Date(b.dueAt)); },
     async get(id) { return read().find(t => t.id === id) || null; },
     async create(partial) {
-      const nowIso = new Date().toISOString(); // UTC
+      // Persist timestamps as UTC ISO strings to stay compatible with the API.
+      const nowIso = new Date().toISOString();
       const task = {
         id: uid(),
         title: '',
         description: '',
         category: '',
         priority: 'medium',
-        dueAt: nowIso,            // UTC ISO string
+        dueAt: nowIso,
         done: false,
         notify: false,
         createdAt: nowIso,
@@ -60,6 +65,7 @@ const LocalStore = (() => {
   };
 })();
 
+// Server-backed persistence that requires a valid PHP session.
 const ServerStore = (() => {
   const base = 'server/tasks.php';
   const headers = { 'Content-Type': 'application/json' };
@@ -69,11 +75,9 @@ const ServerStore = (() => {
     async all(){ return j(await fetch(base, { credentials:'same-origin' })); },
     async get(id){ return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { credentials:'same-origin' })); },
     async create(partial){
-      // Expect partial.dueAt as UTC ISO (with Z)
       return j(await fetch(base, { method:'POST', headers, body: JSON.stringify(partial), credentials:'same-origin' }));
     },
     async update(id, updates){
-      // Expect updates.dueAt as UTC ISO (with Z)
       return j(await fetch(`${base}?id=${encodeURIComponent(id)}`, { method:'PATCH', headers, body: JSON.stringify(updates), credentials:'same-origin' }));
     },
     async remove(id){
@@ -86,7 +90,7 @@ const ServerStore = (() => {
   };
 })();
 
-// ---------------- Reminders (display local) -------------
+// Reminder poller keeps badge counts and browser notifications in sync with due dates.
 const Reminders = (() => {
   let timer = null;
   const REQUESTED = 'stm.notify.requested';
@@ -106,19 +110,20 @@ const Reminders = (() => {
   function notify(task) {
     try {
       const title = `Task due: ${task.title}`;
-      const body = `${new Date(task.dueAt).toLocaleString()} • ${task.category || 'No category'}`;
+      const body = `${new Date(task.dueAt).toLocaleString()} - ${task.category || 'No category'}`;
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(title, { body });
       }
     } catch {}
   }
+  // Poll tasks to trigger notifications and update the due-soon badge.
   async function checkDue(Store) {
     const now = Date.now();
     const soonWindow = 24*60*60*1000;
     const tasks = (await Store.all()).filter(t => !t.done);
     let dueSoon = 0;
     for (const t of tasks) {
-      const due = new Date(t.dueAt).getTime(); // UTC ISO → epoch
+      const due = new Date(t.dueAt).getTime();
       if (due - now <= soonWindow && due >= now) dueSoon++;
       if (t.notify && due <= now && due > now - 60*1000) notify(t);
     }
@@ -162,13 +167,13 @@ const UI = (() => {
   let weeklyChart = null;
   let Store = LocalStore;
 
-  // Display helper: show LOCAL time to the user
+  // Format stored UTC timestamps for display in the user's locale.
   const fmtDate = (isoZ) => new Date(isoZ).toLocaleString();
 
   const startOfWeek = (date) => { const d=new Date(date); const day=d.getDay(); const diff=(day===0?-6:1)-day; d.setDate(d.getDate()+diff); d.setHours(0,0,0,0); return d; };
   const endOfWeek   = (date) => { const d=startOfWeek(date); d.setDate(d.getDate()+6); d.setHours(23,59,59,999); return d; };
 
-  // New Task buttons (various selectors)
+  // Recognize multiple UI affordances that should open the task form.
   const NEW_TASK_SELECTORS = [
     '#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '#add',
     '.btn-add', '.btn-add-task', '.add-task', '.addTask',
@@ -195,6 +200,9 @@ const UI = (() => {
     return span;
   }
 
+  /**
+   * Render the task list using the active filters, search, and sort order.
+   */
   async function renderList() {
     const query = els.search?.value?.trim().toLowerCase() || '';
     const cat = els.categoryFilter?.value || '';
@@ -243,7 +251,8 @@ const UI = (() => {
       if (t.done) title.classList.add('line-through','text-slate-400');
       desc.textContent = t.description || '';
       const overdue = !t.done && new Date(t.dueAt).getTime() < Date.now();
-      due.textContent = `Due: ${fmtDate(t.dueAt)}`;           // display LOCAL
+      // Show due dates in the viewer's local timezone.
+      due.textContent = `Due: ${fmtDate(t.dueAt)}`;
       due.className = `text-xs mt-2 ${overdue ? 'text-red-600' : 'text-slate-500'}`;
 
       const pc = priorityChipEl(t.priority);
@@ -260,6 +269,7 @@ const UI = (() => {
     }
   }
 
+  // Populate category inputs based on the current task set.
   async function populateFilters() {
     if (!els.categoryFilter || !els.catDatalist) return;
     const cats = [...new Set((await Store.all()).map(t => t.category).filter(Boolean))].sort();
@@ -267,13 +277,14 @@ const UI = (() => {
     els.catDatalist.innerHTML = cats.map(c => `<option value="${c}"></option>`).join('');
   }
 
+  // Update the due-soon badge count and visibility.
   function setDueSoonBadge(count) {
     if (!els.dueSoonBadge) return;
     els.dueSoonBadge.textContent = `${count} due soon`;
     if (count > 0) els.dueSoonBadge.classList.remove('hidden'); else els.dueSoonBadge.classList.add('hidden');
   }
 
-  // For <input type="datetime-local"> (LOCAL prefill/edit)
+  // Convert Date values into the string format expected by datetime-local inputs.
   function toLocalDateTime(date) {
     const pad = (n) => String(n).padStart(2, '0');
     const y = date.getFullYear(); const m = pad(date.getMonth()+1); const d = pad(date.getDate());
@@ -281,6 +292,7 @@ const UI = (() => {
     return `${y}-${m}-${d}T${hh}:${mm}`;
   }
 
+  // Open the modal for creating or editing a task and prefill values.
   async function openForm(id=null) {
     if (!els.modal || !els.form) return;
     editingId = id;
@@ -316,7 +328,8 @@ const UI = (() => {
   window.UI.openForm = openForm;
   window.UI.closeForm = closeForm;
 
-  //  UTC conversion
+  // Normalize form data before persisting (always send UTC timestamps).
+  // Persist form data then refresh the task list.
   async function handleSubmit(e){
     e.preventDefault();
     const fd = new FormData(els.form);
@@ -342,6 +355,7 @@ const UI = (() => {
     renderAll(Store);
   }
 
+  // Delete the currently edited task and refresh the view.
   async function handleDelete(){
     if (editingId && confirm('Delete this task?')) {
       await Store.remove(editingId);
@@ -349,7 +363,10 @@ const UI = (() => {
     }
   }
 
-  // Stats / Chart 
+  // Statistics panels and weekly completion chart.
+  /**
+   * Compute aggregate stats for the dashboard cards.
+   */
   async function renderStats(Store){
     if (!els.statTotal) return;
     const tasks = await Store.all();
@@ -366,6 +383,9 @@ const UI = (() => {
     els.statOverdue.textContent = overdue;
   }
 
+  /**
+   * Render a seven day completion chart using Chart.js if it is available.
+   */
   async function renderWeeklyChart(Store){
     if (typeof Chart === 'undefined') return;
     const canvas = document.getElementById('weeklyChart');
@@ -385,7 +405,7 @@ const UI = (() => {
 
     const tasks = await Store.all();
     for (const t of tasks) {
-      const due = new Date(t.dueAt); // UTC ISO → Date
+      const due = new Date(t.dueAt);
       const localDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
       const k = keyLocal(localDay);
       if (k in totalByDay) {
@@ -421,16 +441,18 @@ const UI = (() => {
 
     const end = endOfWeekLocal(new Date());
     const wr = document.getElementById('weekRange');
-    if (wr) wr.textContent = `${sw.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+    if (wr) wr.textContent = `${sw.toLocaleDateString()} - ${end.toLocaleDateString()}`;
   }
 
-  //Bindings
+  // Wire up DOM event handlers after the store has been selected.
+  // Attach an event handler to every element that matches any selector.
   function onAll(selectors, type, handler) {
     selectors.forEach(sel => {
       document.querySelectorAll(sel).forEach(el => el.addEventListener(type, handler));
     });
   }
 
+  // Register UI event handlers that depend on the active storage driver.
   function bind(StoreRef){
     onAll(
       ['#btnNewTask', '#btnAddTask', '#addTask', '#taskAdd', '.btn-add', '.btn-add-task', '.add-task', '[data-action="newTask"]'],
@@ -504,6 +526,7 @@ const UI = (() => {
     }
   }
 
+  // Refresh filters, list, stats, and charts in sequence.
   async function renderAll(StoreRef){
     await populateFilters();
     await renderList();
@@ -511,6 +534,9 @@ const UI = (() => {
     await renderWeeklyChart(StoreRef);
   }
 
+  /**
+   * Select a storage driver, enforce auth when needed, and bootstrap the UI.
+   */
   async function init(){
     const serverUp = await pingServer();
     Store = serverUp ? ServerStore : LocalStore;
@@ -527,6 +553,7 @@ const UI = (() => {
     Reminders.start(Store);
 
  
+    // Seed demo data on first launch so local mode is not empty.
     if (Store.name === 'local' && (await Store.all()).length === 0) {
       const now = Date.now();
       await Store.create({ title: 'Finish math assignment', category: 'Math',    priority: 'high',   dueAt: new Date(now+6*3600e3).toISOString(),  notify: true });

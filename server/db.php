@@ -1,6 +1,10 @@
 <?php
+/**
+ * Database helpers shared by the PHP endpoints.
+ */
 require_once __DIR__ . '/config.php';
 
+// Lazily create and reuse a PDO connection.
 function db() {
   static $pdo = null;
   if ($pdo) return $pdo;
@@ -13,6 +17,7 @@ function db() {
   return $pdo;
 }
 
+// Emit a JSON response with the given HTTP status and terminate.
 function json_out($data, int $code = 200) {
   http_response_code($code);
   header('Content-Type: application/json');
@@ -20,6 +25,7 @@ function json_out($data, int $code = 200) {
   exit;
 }
 
+// Safely decode the JSON body, returning an empty array when absent.
 function read_json_body() {
   $raw = file_get_contents('php://input');
   $data = json_decode($raw, true);

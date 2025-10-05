@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Student Task Manager – Sign in</title>
+  <title>Student Task Manager - Sign in</title>
   <link rel="stylesheet" href="assets/styles.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <script defer src="assets/auth.js"></script>
+  <!-- Compact, page-specific styling for the auth forms. -->
   <style>
     .auth-card{max-width:420px;margin:6rem auto;padding:2rem;background:white;border-radius:1rem;box-shadow:0 10px 30px rgba(2,6,23,.08)}
     .brand{font-weight:700;font-size:1.25rem}
@@ -27,9 +28,10 @@
   </style>
 </head>
 <body>
+  <!-- Authentication card with login and registration forms. -->
   <div class="auth-card">
-    <div class="brand">🎒 Student Task Manager</div>
-    <div class="muted" style="margin-top:.25rem;">Welcome back — sign in to manage your tasks</div>
+    <div class="brand">Student Task Manager</div>
+    <div class="muted" style="margin-top:.25rem;">Welcome back - sign in to manage your tasks</div>
 
     <div class="tab" role="tablist" aria-label="Auth switch">
       <button id="tabLogin" class="active" type="button">Login</button>
@@ -47,7 +49,7 @@
         </div>
         <div>
           <label class="muted">Password</label>
-          <input class="input" type="password" name="password" required placeholder="••••••••"/>
+          <input class="input" type="password" name="password" required placeholder="********"/>
         </div>
         <button class="btn" type="submit">Sign in</button>
       </div>

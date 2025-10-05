@@ -1,4 +1,7 @@
 <?php
+/**
+ * Task CRUD and import/export endpoints gated by the PHP session.
+ */
 date_default_timezone_set('UTC');
 require_once __DIR__ . '/db.php';
 session_start();
@@ -8,13 +11,13 @@ if (isset($_GET['ping'])) { json_out(['ok' => true]); }
 
 $pdo = db();
 
-// require auth 
+// Enforce session-based authentication before touching task data.
 if (!isset($_SESSION['uid'])) { json_out(['error'=>'Unauthorized'], 401); }
 $userId = intval($_SESSION['uid']);
 
 
 function ensure_schema(PDO $pdo) {
-  // create table if not exists 
+  // Create the tasks table on first request if it is missing.
   $pdo->exec("CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     uid VARCHAR(64) NOT NULL UNIQUE,
@@ -29,7 +32,7 @@ function ensure_schema(PDO $pdo) {
     updated_at DATETIME NOT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-  // add user_id column if missing
+  // Add the user_id column during lightweight migrations from older schemas.
   $cols = $pdo->query("SHOW COLUMNS FROM tasks")->fetchAll(PDO::FETCH_COLUMN, 0);
   if (!in_array('user_id', $cols, true)) {
     $pdo->exec("ALTER TABLE tasks ADD COLUMN user_id INT NULL AFTER id, ADD INDEX (user_id)");
@@ -55,14 +58,14 @@ function row_to_task($r){
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// Export (current user's tasks only)
+// Export the current user's tasks as JSON.
 if ($method === 'GET' && isset($_GET['export'])) {
   $st = $pdo->prepare("SELECT * FROM tasks WHERE user_id = ? ORDER BY due_at ASC");
   $st->execute([$userId]);
   json_out(array_map('row_to_task', $st->fetchAll()));
 }
 
-// List or get by id 
+// List tasks or fetch a single task by uid.
 if ($method === 'GET') {
   if (isset($_GET['id'])) {
     $st = $pdo->prepare("SELECT * FROM tasks WHERE uid = ? AND user_id = ?");
@@ -77,7 +80,7 @@ if ($method === 'GET') {
   }
 }
 
-// Import/replace (for current user only)
+// Replace the current user's task list via JSON import.
 if ($method === 'POST' && isset($_GET['import'])) {
   $json = read_json_body();
   if (!is_array($json)) json_out(['error' => 'Invalid payload'], 400);
@@ -110,7 +113,7 @@ if ($method === 'POST' && isset($_GET['import'])) {
   json_out(['ok'=>true]);
 }
 
-// Create 
+// Create a new task for the current user.
 if ($method === 'POST') {
   $in = read_json_body();
   $uid = bin2hex(random_bytes(12));
@@ -136,7 +139,7 @@ if ($method === 'POST') {
   json_out(row_to_task($st->fetch()), 201);
 }
 
-// Update 
+// Patch an existing task (supports partial payloads).
 if ($method === 'PATCH' || $method === 'PUT') {
   if (empty($_GET['id'])) json_out(['error'=>'id is required'],400);
   $id = $_GET['id'];
@@ -174,7 +177,7 @@ if ($method === 'PATCH' || $method === 'PUT') {
   json_out(row_to_task($r));
 }
 
-// Delete 
+// Delete a task by uid.
 if ($method === 'DELETE') {
   if (empty($_GET['id'])) json_out(['error'=>'id is required'],400);
   $st = $pdo->prepare("DELETE FROM tasks WHERE uid = ? AND user_id = ?");

@@ -1,4 +1,5 @@
 <?php
+// Database connection configuration with environment overrides.
 
 define('DB_HOST', getenv('STM_DB_HOST') ?: 'localhost');
 define('DB_NAME', getenv('STM_DB_NAME') ?: 'stm_db');

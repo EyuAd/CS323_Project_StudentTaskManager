@@ -1,9 +1,13 @@
 <?php
+/**
+ * Authentication endpoints for login, registration, session status, and logout.
+ */
 date_default_timezone_set('UTC');
 require_once __DIR__ . '/db.php';
 session_start();
 
 $pdo = db();
+// Ensure the users table exists even if migrations have not been run yet.
 $pdo->exec("CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(255) NOT NULL UNIQUE,
@@ -12,6 +16,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
+// Return the authenticated user's basic profile from the PHP session.
 function current_user() {
   if (!empty($_SESSION['uid'])) {
     return ['email' => $_SESSION['email'], 'username' => $_SESSION['username']];
@@ -21,17 +26,20 @@ function current_user() {
 
 $action = $_GET['action'] ?? '';
 
+// Handle session status checks.
 if ($action === 'session') {
   $u = current_user();
   if ($u) json_out(['authenticated'=>true, 'user'=>$u]);
   json_out(['authenticated'=>false]);
 }
 
+// End the session on explicit logout.
 if ($action === 'logout') {
   session_destroy();
   json_out(['ok'=>true]);
 }
 
+// Register a new account and sign the user in.
 if ($action === 'register' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $data = read_json_body();
   $email = strtolower(trim($data['email'] ?? ''));
@@ -56,6 +64,7 @@ if ($action === 'register' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   json_out(['ok'=>true, 'user'=>current_user()], 201);
 }
 
+// Log an existing user in when credentials match.
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $data = read_json_body();
   $email = strtolower(trim($data['email'] ?? ''));
