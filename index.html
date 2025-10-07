@@ -1,283 +1,569 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Student Task Manager</title>
-
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              brand: {
-                50: "#f0f9ff",
-                100: "#e0f2fe",
-                200: "#bae6fd",
-                300: "#7dd3fc",
-                400: "#38bdf8",
-                500: "#0ea5e9",
-                600: "#0284c7",
-                700: "#0369a1",
-                800: "#075985",
-                900: "#0c4a6e",
-              },
-            },
-          },
-        },
-      };
-    </script>
-
-    <!-- Icons -->
-    <link
-      href="https://cdn.jsdelivr.net/npm/lucide-static@0.321.0/font/lucide.css"
-      rel="stylesheet"
-    />
-
-    <!-- App styles -->
-    <link rel="stylesheet" href="./assets/styles.css" />
-  </head>
-
-  <body class="min-h-screen bg-slate-50 text-slate-800">
-    <!-- Header -->
-    <header
-      class="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/90 border-b border-slate-200"
-    >
-      <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <span class="i-lucide-graduation-cap text-brand-600 text-2xl"></span>
-          <h1 class="text-xl md:text-2xl font-bold">Student Task Manager</h1>
-          <span id="dueSoonBadge" class="hidden ml-2 chip chip-alert">Due soon</span>
-        </div>
-
-
-        <!-- Header shortcuts: user info, import/export, and auth controls. -->
-        <div class="ml-auto flex items-center gap-4 whitespace-nowrap">
-          <span
-            id="userName"
-            class="inline-flex items-center h-9 px-3 rounded-full bg-slate-100 text-slate-700 font-semibold"
-          >
-
-          </span>
-          <div class="h-6 w-px bg-slate-200"></div>
-          <div class="flex items-center gap-2">
-            <button
-              id="btnExport"
-              class="btn btn-secondary h-9 inline-flex items-center"
-              title="Export tasks as JSON"
-            >
-              <span class="i-lucide-download"></span>
-              <span class="ml-2">Export</span>
-            </button>
-          <div class="h-6 w-px bg-slate-200"></div>
-            <label
-              for="importFile"
-              class="btn btn-secondary h-9 inline-flex items-center cursor-pointer"
-              title="Import tasks from JSON"
-            >
-              <span class="i-lucide-upload"></span>
-              <span class="ml-2">Import</span>
-            </label>
-            <input id="importFile" type="file" accept="application/json" class="hidden" />
-          </div>
-
-          <div class="h-6 w-px bg-slate-200"></div>
-
-
-          <div class="flex items-center gap-2">
-            <button
-              id="btnNewTask"
-              class="px-4 h-9 inline-flex items-center rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
-            >
-              New Task
-            </button>
-          <div class="h-6 w-px bg-slate-200"></div>
-            <button
-              id="btnLogout"
-              class="px-4 h-9 inline-flex items-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
-      <!-- Filters/Search -->
-      <section class="card p-4">
-        <div class="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
-          <div class="flex flex-wrap gap-2">
-            <button data-filter="all" class="filter-btn btn btn-secondary">All</button>
-            <button data-filter="today" class="filter-btn btn btn-secondary">Today</button>
-            <button data-filter="week" class="filter-btn btn btn-secondary">This Week</button>
-            <button data-filter="overdue" class="filter-btn btn btn-secondary">Overdue</button>
-            <button data-filter="completed" class="filter-btn btn btn-secondary">Completed</button>
-          </div>
-          <div class="flex gap-2 w-full md:w-auto">
-            <input id="search" class="input" placeholder="Search title or description..." />
-            <select id="categoryFilter" class="input md:w-48">
-              <option value="">All categories</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      <!-- Dashboard -->
-      <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="card p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold">Weekly Progress</h2>
-            <span id="weekRange" class="text-sm text-slate-500"></span>
-          </div>
-<div class="chart-wrap">
-  <canvas id="weeklyChart" aria-label="Weekly progress chart"></canvas>
-</div>
-<span id="weekRange" class="text-sm text-slate-500"></span>
-
-        </div>
-
-        <div class="card p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold">At a Glance</h2>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="p-4 rounded-xl bg-slate-100">
-              <div class="text-sm text-slate-600">Total Tasks</div>
-              <div id="statTotal" class="text-2xl font-bold">0</div>
-            </div>
-            <div class="p-4 rounded-xl bg-emerald-100">
-              <div class="text-sm text-emerald-700">Completed</div>
-              <div id="statDone" class="text-2xl font-bold">0</div>
-            </div>
-            <div class="p-4 rounded-xl bg-amber-100">
-              <div class="text-sm text-amber-700">Due Soon (&lt;=24h)</div>
-              <div id="statSoon" class="text-2xl font-bold">0</div>
-            </div>
-            <div class="p-4 rounded-xl bg-red-100">
-              <div class="text-sm text-red-700">Overdue</div>
-              <div id="statOverdue" class="text-2xl font-bold">0</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Task List -->
-      <section class="card p-4">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-lg font-semibold">Tasks</h2>
-          <div class="text-sm text-slate-500" id="listSummary">0 items</div>
-        </div>
-        <div id="taskList" class="divide-y"></div>
-        <div id="emptyState" class="hidden p-8 text-center text-slate-500">
-          <p class="mb-3">No tasks found. Create your first task!</p>
-          <button class="btn btn-primary" onclick="UI.openForm()">
-            <span class="i-lucide-plus"></span> Add Task
-          </button>
-        </div>
-      </section>
-    </main>
-
-    <!-- Modal -->
-    <dialog id="taskModal" class="rounded-2xl w-full max-w-xl backdrop:bg-black/40">
-      <form id="taskForm" class="card p-5" method="dialog">
-        <div class="flex items-center justify-between mb-4">
-          <h3 id="formTitle" class="text-lg font-semibold">New Task</h3>
-<button id="btnCloseModal" type="button" class="btn btn-secondary">
-  Close
-</button>
-
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label class="text-sm">Title</label>
-            <input name="title" class="input" required />
-          </div>
-          <div>
-            <label class="text-sm">Category</label>
-            <input
-              name="category"
-              class="input"
-              list="categoryList"
-              placeholder="e.g., Math, CS, Project"
-            />
-            <datalist id="categoryList"></datalist>
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-sm">Description</label>
-            <textarea name="description" class="input" rows="2" placeholder="Optional"></textarea>
-          </div>
-          <div>
-            <label class="text-sm">Due Date</label>
-            <input type="datetime-local" name="dueAt" class="input" required />
-          </div>
-          <div>
-            <label class="text-sm">Priority</label>
-            <select name="priority" class="input">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="flex items-center justify-between mt-5">
-          <div class="flex items-center gap-2">
-            <input id="notifyCheck" type="checkbox" name="notify" class="rounded" />
-            <label for="notifyCheck" class="text-sm">Enable reminder</label>
-          </div>
-          <div class="flex gap-2">
-            <button type="submit" class="btn btn-primary">
-              <span class="i-lucide-save"></span> Save
-            </button>
-            <button type="button" id="btnDelete" class="btn btn-danger hidden">
-              <span class="i-lucide-trash-2"></span> Delete
-            </button>
-          </div>
-        </div>
-      </form>
-    </dialog>
-
-    <!-- Task Row Template -->
-    <template id="taskRowTemplate">
-      <div class="flex flex-col md:flex-row md:items-center gap-3 p-3">
-        <div class="flex items-start gap-3 flex-1">
-          <input
-            type="checkbox"
-            class="mt-1 size-5 rounded border-slate-300 toggle-done"
-            aria-label="Mark complete"
-          />
-          <div class="flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <h3 class="title font-semibold"></h3>
-              <span class="chip priority-chip"></span>
-              <span class="chip category-chip hidden bg-slate-100 text-slate-700"></span>
-            </div>
-            <p class="text-sm text-slate-600 mt-1 desc"></p>
-            <div class="text-xs mt-2 due"></div>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="chip reminder-chip hidden chip-reminder">Reminder</span>
-          <button class="btn btn-secondary edit-btn">
-            <span class="i-lucide-pencil"></span> Edit
-          </button>
-          <button class="btn btn-danger delete-btn">
-            <span class="i-lucide-trash-2">Delete</span>
-          </button>
-        </div>
-      </div>
-    </template>
-
-    <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-sm text-slate-500">
-      <p>.</p>
-    </footer>
-
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script defer src="assets/app.js"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+
+<html lang="en">
+
+  <head>
+
+    <meta charset="utf-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Student Task Manager</title>
+
+
+
+    <!-- Tailwind CSS CDN -->
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+
+      tailwind.config = {
+
+        theme: {
+
+          extend: {
+
+            colors: {
+
+              brand: {
+
+                50: "#f0f9ff",
+
+                100: "#e0f2fe",
+
+                200: "#bae6fd",
+
+                300: "#7dd3fc",
+
+                400: "#38bdf8",
+
+                500: "#0ea5e9",
+
+                600: "#0284c7",
+
+                700: "#0369a1",
+
+                800: "#075985",
+
+                900: "#0c4a6e",
+
+              },
+
+            },
+
+          },
+
+        },
+
+      };
+
+    </script>
+
+
+
+    <!-- Icons -->
+
+    <link
+
+      href="https://cdn.jsdelivr.net/npm/lucide-static@0.321.0/font/lucide.css"
+
+      rel="stylesheet"
+
+    />
+
+
+
+    <!-- App styles -->
+
+    <link rel="stylesheet" href="./assets/styles.css" />
+
+  </head>
+
+
+
+  <body class="min-h-screen bg-slate-50 text-slate-800">
+
+    <!-- Header -->
+
+    <header
+
+      class="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/90 border-b border-slate-200"
+
+    >
+
+      <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+
+        <div class="flex items-center gap-3">
+
+          <span class="i-lucide-graduation-cap text-brand-600 text-2xl"></span>
+
+          <h1 class="text-xl md:text-2xl font-bold">Student Task Manager</h1>
+
+          <span id="dueSoonBadge" class="hidden ml-2 chip chip-alert">Due soon</span>
+
+        </div>
+
+
+
+
+
+        <!-- Header shortcuts: user info, import/export, and auth controls. -->
+
+        <div class="ml-auto flex items-center gap-4 whitespace-nowrap">
+
+          <span
+
+            id="userName"
+
+            class="inline-flex items-center h-9 px-3 rounded-full bg-slate-100 text-slate-700 font-semibold"
+
+          >
+
+
+
+          </span>
+
+          <div class="h-6 w-px bg-slate-200"></div>
+
+          <div class="flex items-center gap-2">
+
+            <button
+
+              id="btnExport"
+
+              class="btn btn-secondary h-9 inline-flex items-center"
+
+              title="Export tasks as JSON"
+
+            >
+
+              <span class="i-lucide-download"></span>
+
+              <span class="ml-2">Export</span>
+
+            </button>
+
+          <div class="h-6 w-px bg-slate-200"></div>
+
+            <label
+
+              for="importFile"
+
+              class="btn btn-secondary h-9 inline-flex items-center cursor-pointer"
+
+              title="Import tasks from JSON"
+
+            >
+
+              <span class="i-lucide-upload"></span>
+
+              <span class="ml-2">Import</span>
+
+            </label>
+
+            <input id="importFile" type="file" accept="application/json" class="hidden" />
+
+          </div>
+
+
+
+          <div class="h-6 w-px bg-slate-200"></div>
+
+
+
+
+
+          <div class="flex items-center gap-2">
+
+            <button
+
+              id="btnNewTask"
+
+              class="px-4 h-9 inline-flex items-center rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
+
+            >
+
+              New Task
+
+            </button>
+
+          <div class="h-6 w-px bg-slate-200"></div>
+
+            <button
+
+              id="btnLogout"
+
+              class="px-4 h-9 inline-flex items-center rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium"
+
+            >
+
+              Logout
+
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </header>
+
+
+
+    <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+      <!-- Filters/Search -->
+
+      <section class="card p-4">
+
+        <div class="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
+
+          <div class="flex flex-wrap gap-2">
+
+            <button data-filter="all" class="filter-btn btn btn-secondary">All</button>
+
+            <button data-filter="today" class="filter-btn btn btn-secondary">Today</button>
+
+            <button data-filter="week" class="filter-btn btn btn-secondary">This Week</button>
+
+            <button data-filter="overdue" class="filter-btn btn btn-secondary">Overdue</button>
+
+            <button data-filter="completed" class="filter-btn btn btn-secondary">Completed</button>
+
+          </div>
+
+          <div class="flex gap-2 w-full md:w-auto">
+
+            <input id="search" class="input" placeholder="Search title or description..." />
+
+            <select id="categoryFilter" class="input md:w-48">
+
+              <option value="">All categories</option>
+
+            </select>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+
+      <!-- Dashboard -->
+
+      <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <div class="card p-5">
+
+          <div class="flex items-center justify-between mb-4">
+
+            <h2 class="text-lg font-semibold">Weekly Progress</h2>
+
+            <span id="weekRange" class="text-sm text-slate-500"></span>
+
+          </div>
+
+<div class="chart-wrap">
+
+  <canvas id="weeklyChart" aria-label="Weekly progress chart"></canvas>
+
+</div>
+
+<span id="weekRange" class="text-sm text-slate-500"></span>
+
+
+
+        </div>
+
+
+
+        <div class="card p-5">
+
+          <div class="flex items-center justify-between mb-4">
+
+            <h2 class="text-lg font-semibold">At a Glance</h2>
+
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+            <div class="p-4 rounded-xl bg-slate-100">
+
+              <div class="text-sm text-slate-600">Total Tasks</div>
+
+              <div id="statTotal" class="text-2xl font-bold">0</div>
+
+            </div>
+
+            <div class="p-4 rounded-xl bg-emerald-100">
+
+              <div class="text-sm text-emerald-700">Completed</div>
+
+              <div id="statDone" class="text-2xl font-bold">0</div>
+
+            </div>
+
+            <div class="p-4 rounded-xl bg-amber-100">
+
+              <div class="text-sm text-amber-700">Due Soon (&lt;=24h)</div>
+
+              <div id="statSoon" class="text-2xl font-bold">0</div>
+
+            </div>
+
+            <div class="p-4 rounded-xl bg-red-100">
+
+              <div class="text-sm text-red-700">Overdue</div>
+
+              <div id="statOverdue" class="text-2xl font-bold">0</div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+
+      <!-- Task List -->
+
+      <section class="card p-4">
+
+        <div class="flex items-center justify-between mb-2">
+
+          <h2 class="text-lg font-semibold">Tasks</h2>
+
+          <div class="text-sm text-slate-500" id="listSummary">0 items</div>
+
+        </div>
+
+        <div id="taskList" class="divide-y"></div>
+
+        <div id="emptyState" class="hidden p-8 text-center text-slate-500">
+
+          <p class="mb-3">No tasks found. Create your first task!</p>
+
+          <button class="btn btn-primary" onclick="UI.openForm()">
+
+            <span class="i-lucide-plus"></span> Add Task
+
+          </button>
+
+        </div>
+
+      </section>
+
+    </main>
+
+
+
+    <!-- Modal -->
+
+    <dialog id="taskModal" class="rounded-2xl w-full max-w-xl backdrop:bg-black/40">
+
+      <form id="taskForm" class="card p-5" method="dialog">
+
+        <div class="flex items-center justify-between mb-4">
+
+          <h3 id="formTitle" class="text-lg font-semibold">New Task</h3>
+
+<button id="btnCloseModal" type="button" class="btn btn-secondary">
+
+  Close
+
+</button>
+
+
+
+        </div>
+
+
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+          <div>
+
+            <label class="text-sm">Title</label>
+
+            <input name="title" class="input" required />
+
+          </div>
+
+          <div>
+
+            <label class="text-sm">Category</label>
+
+            <input
+
+              name="category"
+
+              class="input"
+
+              list="categoryList"
+
+              placeholder="e.g., Math, CS, Project"
+
+            />
+
+            <datalist id="categoryList"></datalist>
+
+          </div>
+
+          <div class="md:col-span-2">
+
+            <label class="text-sm">Description</label>
+
+            <textarea name="description" class="input" rows="2" placeholder="Optional"></textarea>
+
+          </div>
+
+          <div>
+
+            <label class="text-sm">Due Date</label>
+
+            <input type="datetime-local" name="dueAt" class="input" required />
+
+          </div>
+
+          <div>
+
+            <label class="text-sm">Priority</label>
+
+            <select name="priority" class="input">
+
+              <option value="low">Low</option>
+
+              <option value="medium" selected>Medium</option>
+
+              <option value="high">High</option>
+
+            </select>
+
+          </div>
+
+        </div>
+
+
+
+        <div class="flex items-center justify-between mt-5">
+
+          <div class="flex items-center gap-2">
+
+            <input id="notifyCheck" type="checkbox" name="notify" class="rounded" />
+
+            <label for="notifyCheck" class="text-sm">Enable reminder</label>
+
+          </div>
+
+          <div class="flex gap-2">
+
+            <button type="submit" class="btn btn-primary">
+
+              <span class="i-lucide-save"></span> Save
+
+            </button>
+
+            <button type="button" id="btnDelete" class="btn btn-danger hidden">
+
+              <span class="i-lucide-trash-2"></span> Delete
+
+            </button>
+
+          </div>
+
+        </div>
+
+      </form>
+
+    </dialog>
+
+
+
+    <!-- Task Row Template -->
+
+    <template id="taskRowTemplate">
+
+      <div class="flex flex-col md:flex-row md:items-center gap-3 p-3">
+
+        <div class="flex items-start gap-3 flex-1">
+
+          <input
+
+            type="checkbox"
+
+            class="mt-1 size-5 rounded border-slate-300 toggle-done"
+
+            aria-label="Mark complete"
+
+          />
+
+          <div class="flex-1">
+
+            <div class="flex flex-wrap items-center gap-2">
+
+              <h3 class="title font-semibold"></h3>
+
+              <span class="chip priority-chip"></span>
+
+              <span class="chip category-chip hidden bg-slate-100 text-slate-700"></span>
+
+            </div>
+
+            <p class="text-sm text-slate-600 mt-1 desc"></p>
+
+                        <div class="text-xs mt-2 due"></div>
+
+            <div class="text-xs mt-1 text-slate-500 origin hidden"></div>
+
+          </div>
+
+        </div>
+
+        <div class="flex items-center gap-2">
+
+          <span class="chip reminder-chip hidden chip-reminder">Reminder</span>
+
+          <button class="btn btn-secondary edit-btn">
+
+            <span class="i-lucide-pencil"></span> Edit
+
+          </button>
+
+          <button class="btn btn-danger delete-btn">
+
+            <span class="i-lucide-trash-2">Delete</span>
+
+          </button>
+
+        </div>
+
+      </div>
+
+    </template>
+
+
+
+    <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-sm text-slate-500">
+
+      <p>.</p>
+
+    </footer>
+
+
+
+    <!-- Scripts -->
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <script defer src="assets/app.js"></script>
+
+  </body>
+
+</html>
+
+

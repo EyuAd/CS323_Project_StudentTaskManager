@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mentor Dashboard - Student Task Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                200: '#bae6fd',
+                300: '#7dd3fc',
+                400: '#38bdf8',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+                800: '#075985',
+                900: '#0c4a6e'
+              }
+            }
+          }
+        }
+      };
+    </script>
+        <link
+      href="https://cdn.jsdelivr.net/npm/lucide-static@0.321.0/font/lucide.css"
+      rel="stylesheet"
+    />
+<link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800">
+    <header class="bg-white/90 border-b border-slate-200">
+      <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="i-lucide-briefcase text-brand-600 text-2xl"></span>
+          <div>
+            <h1 class="text-xl md:text-2xl font-bold">Mentor Dashboard</h1>
+            <p class="text-sm text-slate-500">Assign and track student tasks</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="mentorName" class="chip chip-reminder hidden"></span>
+          <button id="btnLogout" class="btn btn-secondary">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 space-y-8">
+      <section>
+        <h2 class="text-lg font-semibold mb-3">Overview</h2>
+        <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="card p-4">
+            <p class="text-sm text-slate-500">Students</p>
+            <p id="summaryStudents" class="text-2xl font-bold">0</p>
+          </div>
+          <div class="card p-4">
+            <p class="text-sm text-slate-500">Tasks Assigned</p>
+            <p id="summaryAssigned" class="text-2xl font-bold">0</p>
+          </div>
+          <div class="card p-4">
+            <p class="text-sm text-slate-500">Open Tasks</p>
+            <p id="summaryOpen" class="text-2xl font-bold">0</p>
+          </div>
+          <div class="card p-4">
+            <p class="text-sm text-slate-500">Completed</p>
+            <p id="summaryCompleted" class="text-2xl font-bold">0</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold">Student Roster</h2>
+          <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+        </div>
+        <div id="studentEmpty" class="hidden text-sm text-slate-500">No students linked yet.</div>
+        <div id="studentList" class="grid gap-4 grid-cols-1 md:grid-cols-2"></div>
+      </section>
+
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-semibold" id="taskPanelTitle">Select a student</h2>
+            <p class="text-sm text-slate-500" id="taskPanelSub">Choose a student to review their assignments.</p>
+          </div>
+          <button id="btnAssign" class="btn btn-primary hidden">
+            <span class="i-lucide-plus"></span> Assign Task
+          </button>
+        </div>
+        <div id="taskEmpty" class="text-sm text-slate-500 hidden">No tasks yet for this student.</div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500">
+              <tr>
+                <th class="py-2">Title</th>
+                <th class="py-2">Due</th>
+                <th class="py-2">Priority</th>
+                <th class="py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody id="taskTable" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="assignModal" class="rounded-xl border border-slate-200 p-0 w-full max-w-lg">
+      <form id="assignForm" class="p-6 space-y-4">
+        <h3 class="text-lg font-semibold">Assign Task</h3>
+        <div>
+          <label class="block text-sm text-slate-500 mb-1">Student</label>
+          <select id="assignStudent" name="studentId" class="input" required></select>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-500 mb-1">Title</label>
+          <input type="text" name="title" class="input" placeholder="Task title" required />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-500 mb-1">Description</label>
+          <textarea name="description" class="input" rows="3" placeholder="What should they do?"></textarea>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm text-slate-500 mb-1">Due date</label>
+            <input type="datetime-local" name="dueAt" class="input" required />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-500 mb-1">Priority</label>
+            <select name="priority" class="input">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex justify-end gap-3 pt-4">
+          <button type="button" id="assignCancel" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Assign</button>
+        </div>
+        <p id="assignMessage" class="text-sm"></p>
+      </form>
+    </dialog>
+
+    <template id="studentCardTemplate">
+      <div class="card p-4 flex flex-col gap-3">
+        <div>
+          <h3 class="text-lg font-semibold student-name"></h3>
+          <p class="text-sm text-slate-500 student-email"></p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="chip chip-reminder open-count"></span>
+          <span class="chip chip-med total-count"></span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="btn btn-secondary view-btn">View tasks</button>
+          <button class="btn btn-primary assign-btn">Assign task</button>
+        </div>
+      </div>
+    </template>
+
+    <script defer src="assets/mentor.js"></script>
+  </body>
+</html>

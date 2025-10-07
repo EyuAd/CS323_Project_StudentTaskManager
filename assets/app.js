@@ -35,7 +35,7 @@ const LocalStore = (() => {
     async all() { return read().sort((a,b) => new Date(a.dueAt) - new Date(b.dueAt)); },
     async get(id) { return read().find(t => t.id === id) || null; },
     async create(partial) {
-      // Persist timestamps as UTC ISO strings to stay compatible with the API.
+     
       const nowIso = new Date().toISOString();
       const task = {
         id: uid(),
@@ -245,6 +245,7 @@ const UI = (() => {
       const reminder = frag.querySelector('.reminder-chip');
       const btnEdit = frag.querySelector('.edit-btn');
       const btnDel = frag.querySelector('.delete-btn');
+      const origin = frag.querySelector('.origin');
 
       chk.checked = t.done;
       title.textContent = t.title;
@@ -254,6 +255,18 @@ const UI = (() => {
       // Show due dates in the viewer's local timezone.
       due.textContent = `Due: ${fmtDate(t.dueAt)}`;
       due.className = `text-xs mt-2 ${overdue ? 'text-red-600' : 'text-slate-500'}`;
+
+      if (origin) {
+        const assignedName = t.assignedBy && (t.assignedBy.username || t.assignedBy.email);
+        if (t.assignedBy && t.assignedById && t.assignedById !== t.ownerId) {
+          const label = assignedName || 'Mentor';
+          origin.textContent = `Assigned by ${label}`;
+          origin.classList.remove('hidden');
+        } else {
+          origin.textContent = '';
+          origin.classList.add('hidden');
+        }
+      }
 
       const pc = priorityChipEl(t.priority);
       prio.replaceWith(pc);
@@ -544,8 +557,13 @@ const UI = (() => {
     if (Store.name==='server') {
       const s = await checkSession();
       if (!s.authenticated) { window.location.href='auth.html'; return; }
-      const el=document.getElementById('userName'); if (el && s.user) el.textContent=s.user.username;
-      const lo=document.getElementById('btnLogout'); if (lo) lo.addEventListener('click', logout);
+      const role = s.user?.role;
+      if (role === 'mentor') { window.location.href='mentor.html'; return; }
+      if (role === 'admin') { window.location.href='admin.html'; return; }
+      const el = document.getElementById('userName');
+      if (el && s.user) el.textContent = s.user.username;
+      const lo = document.getElementById('btnLogout');
+      if (lo) lo.addEventListener('click', logout);
     }
 
     bind(Store);
@@ -567,3 +585,4 @@ const UI = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => UI.init());
+

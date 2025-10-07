@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Super Admin - Student Task Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                200: '#bae6fd',
+                300: '#7dd3fc',
+                400: '#38bdf8',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+                800: '#075985',
+                900: '#0c4a6e'
+              }
+            }
+          }
+        }
+      };
+    </script>
+        <link
+      href="https://cdn.jsdelivr.net/npm/lucide-static@0.321.0/font/lucide.css"
+      rel="stylesheet"
+    />
+<link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800">
+    <header class="bg-white/90 border-b border-slate-200">
+      <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="i-lucide-shield-check text-brand-600 text-2xl"></span>
+          <div>
+            <h1 class="text-xl md:text-2xl font-bold">Super Admin</h1>
+            <p class="text-sm text-slate-500">Manage roles, assignments, and activity</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="adminName" class="chip chip-reminder hidden"></span>
+          <button id="btnLogout" class="btn btn-secondary">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 space-y-8">
+      <section class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-semibold">Platform Overview</h2>
+          <p class="text-sm text-slate-500">High-level statistics for quick insight.</p>
+        </div>
+        <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+      </section>
+
+      <section class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4">
+          <p class="text-sm text-slate-500">Users</p>
+          <p id="statUsers" class="text-2xl font-bold">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-sm text-slate-500">Mentors</p>
+          <p id="statMentors" class="text-2xl font-bold">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-sm text-slate-500">Students</p>
+          <p id="statStudents" class="text-2xl font-bold">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-sm text-slate-500">Tasks</p>
+          <p id="statTasks" class="text-2xl font-bold">0</p>
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">User Directory</h2>
+          <span id="adminMessage" class="text-sm text-slate-500"></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500">
+              <tr>
+                <th class="py-2 pr-4">User</th>
+                <th class="py-2 pr-4">Role</th>
+                <th class="py-2 pr-4">Status</th>
+                <th class="py-2 pr-4">Tasks</th>
+                <th class="py-2 pr-4">Mentoring</th>
+                <th class="py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="userTable" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Mentor Assignments</h2>
+          <div class="flex gap-2">
+            <select id="linkMentor" class="input"></select>
+            <select id="linkStudent" class="input"></select>
+            <button id="btnLink" class="btn btn-primary">Link</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500">
+              <tr>
+                <th class="py-2 pr-4">Mentor</th>
+                <th class="py-2 pr-4">Student</th>
+                <th class="py-2 pr-4">Linked</th>
+                <th class="py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="linkTable" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Recent Activity</h2>
+          <button id="btnLogs" class="btn btn-secondary">Reload</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-left text-slate-500">
+              <tr>
+                <th class="py-2 pr-4">When</th>
+                <th class="py-2 pr-4">Actor</th>
+                <th class="py-2 pr-4">Action</th>
+                <th class="py-2">Description</th>
+              </tr>
+            </thead>
+            <tbody id="logTable" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <template id="userRowTemplate">
+      <tr>
+        <td class="py-2 pr-4">
+          <div class="font-semibold user-name"></div>
+          <div class="text-xs text-slate-500 user-email"></div>
+        </td>
+        <td class="py-2 pr-4">
+          <select class="input role-select">
+            <option value="student">Student</option>
+            <option value="mentor">Mentor</option>
+            <option value="admin">Admin</option>
+          </select>
+        </td>
+        <td class="py-2 pr-4">
+          <select class="input status-select">
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </td>
+        <td class="py-2 pr-4 task-count"></td>
+        <td class="py-2 pr-4 mentee-count"></td>
+        <td class="py-2 space-x-2">
+          <button class="btn btn-primary btn-role">Update role</button>
+          <button class="btn btn-secondary btn-status">Update status</button>
+        </td>
+      </tr>
+    </template>
+
+    <script defer src="assets/admin.js"></script>
+  </body>
+</html>
