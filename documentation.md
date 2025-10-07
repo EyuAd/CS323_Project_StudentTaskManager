@@ -9,7 +9,7 @@ The Student Task Manager is a web-based productivity suite for academic communit
 ### Main Features
 - Session-based authentication with role-aware routing (student, mentor, admin).
 - Super admin dashboard for user management, role/status updates, mentor-student linking, and activity auditing.
-- Mentor workspace with roster summaries and a guided task assignment.
+- Mentor workspace with roster summaries and a guided task assignment modal.
 - Student task board with filtering, priority chips, reminders, import/export, and assignment source labels.
 - Weekly progress visualization (Chart.js) and due-soon notifications.
 - Automatic mentor/student relationship tracking and platform activity logging.
@@ -19,7 +19,7 @@ The Student Task Manager is a web-based productivity suite for academic communit
 ## 2. Tech Stack
 - Frontend: HTML5, Tailwind CSS, Vanilla JavaScript, Chart.js
 - Backend: PHP direct integration (Option B from the server-side requirements)
-- Database: MySQL
+- Database: MySQL / MariaDB (InnoDB)
 - Session management: Native PHP sessions
 
 ---
@@ -43,12 +43,30 @@ High-level flow:
 ---
 
 ## 4. Database Design
+![erd](images/erd.png)
 
-### Key Tables
-- **users**: Now includes `role`, `status`, and `last_login` columns for access control and auditing.
-- **tasks**: Tracks ownership (`user_id`) and assignment source (`assigned_by`).
-- **mentor_students**: Junction table linking mentors to their assigned students.
-- **activity_logs**: Records significant actions (logins, task CRUD, role updates).
+### 4.1 Entities
+- **users** (`id`, `email`, `username`, `password_hash`, `role`, `status`, `last_login`, `created_at`)
+- **tasks** (`id`, `user_id`, `assigned_by`, `uid`, `title`, `description`, `category`, `priority`, `due_at`, `done`, `notify`, `created_at`, `updated_at`)
+- **mentor_students** (`id`, `mentor_id`, `student_id`, `created_at`)
+- **activity_logs** (`id`, `user_id`, `actor_email`, `actor_role`, `action`, `description`, `created_at`)
+
+### 4.2 Relationships
+- `users (id) 1 -- n tasks (user_id)`  every task belongs to exactly one student owner.
+- `users (id) 1 -- n tasks (assigned_by)`  nullable link identifying the mentor/admin who created the task.
+- `users (id) 1 -- n mentor_students (mentor_id)`  mentors can supervise many students.
+- `users (id) 1 -- n mentor_students (student_id)`  students can have many mentor links, though the current UX treats it as single-mentor.
+- `users (id) 1 -- n activity_logs (user_id)`  optional subject of an activity entry.
+- `activity_logs.actor_email / actor_role` document the actor even if the user row is later removed.
+
+### 4.3 Design Rationale
+The schema separates responsibilities so each concern can evolve independently:
+- **users** centralizes authentication and role metadata, enabling role-based routing, suspension, and auditing without duplicating state.
+- **tasks** keeps assignment metadata (`assigned_by`) alongside task details so the student board can show the origin of each task and administrators can audit mentor output.
+- **mentor_students** is a bridge table that supports many-to-many relationships, future-proofing the platform for group mentorship or co-mentors.
+- **activity_logs** provides a write-once trail for compliance, troubleshooting, and future analytics.
+
+This structure minimizes join complexity (each core query touches at most two tables) while keeping the door open for richer reporting.
 
 
 
@@ -88,7 +106,7 @@ High-level flow:
 ## 8. Current Limitations
 - Email/push notifications are not yet integrated (reminders rely on browser notifications when permitted).
 - Activity logs remain within the database; no analytics or export tooling yet.
-- Mentor-to-student linking is manual (performed by the super admin or on first mentor assignment) and assumes a one-mentor-per-student workflow.
+- Mentor-to-student linking is manual (performed by the super admin or on first mentor assignment) and assumes a one-mentor workflow.
 - Documentation diagrams need regeneration to reflect the richer schema.
 
 ---
@@ -102,7 +120,7 @@ High-level flow:
 
 ---
 
-## 10. References
+## 11. References
 - Tailwind CSS Documentation
 - Chart.js Documentation
 - PHP Manual 
